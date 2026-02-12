@@ -58,10 +58,11 @@ model User {
   exercises Exercise[]
   goals     Goal[]
 
-  height    Float?
-  weight    Float?
-  age       Int?
-  gender    String?
+  height       Float?
+  weight       Float?
+  targetWeight Float?
+  age          Int?
+  gender       String?
   activityLevel String?
 }
 

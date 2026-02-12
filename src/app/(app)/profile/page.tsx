@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { calculateBMR, calculateTDEE, formatNumber } from "@/lib/utils";
+import { calculateBMR, calculateTDEE, calculateWeightPlan, formatNumber } from "@/lib/utils";
 
 interface Profile {
   id: string;
@@ -15,6 +15,7 @@ interface Profile {
   email: string | null;
   height: number | null;
   weight: number | null;
+  targetWeight: number | null;
   age: number | null;
   gender: string | null;
   activityLevel: string | null;
@@ -31,6 +32,7 @@ export default function ProfilePage() {
     name: "",
     height: "",
     weight: "",
+    targetWeight: "",
     age: "",
     gender: "",
     activityLevel: "",
@@ -46,6 +48,7 @@ export default function ProfilePage() {
           name: data.name || "",
           height: data.height ? String(data.height) : "",
           weight: data.weight ? String(data.weight) : "",
+          targetWeight: data.targetWeight ? String(data.targetWeight) : "",
           age: data.age ? String(data.age) : "",
           gender: data.gender || "",
           activityLevel: data.activityLevel || "",
@@ -99,6 +102,15 @@ export default function ProfilePage() {
   const tdee =
     bmr && form.activityLevel
       ? calculateTDEE(bmr, form.activityLevel)
+      : null;
+
+  const weightPlan =
+    tdee && form.weight && form.targetWeight
+      ? calculateWeightPlan(
+          parseFloat(form.weight),
+          parseFloat(form.targetWeight),
+          tdee
+        )
       : null;
 
   if (loading) {
@@ -196,7 +208,7 @@ export default function ProfilePage() {
                 />
               </div>
               <div>
-                <Label htmlFor="weight">Weight (kg)</Label>
+                <Label htmlFor="weight">Current Weight (kg)</Label>
                 <Input
                   id="weight"
                   type="number"
@@ -209,6 +221,21 @@ export default function ProfilePage() {
                   className="mt-1.5"
                 />
               </div>
+            </div>
+
+            <div>
+              <Label htmlFor="targetWeight">Target Weight (kg)</Label>
+              <Input
+                id="targetWeight"
+                type="number"
+                step="0.1"
+                value={form.targetWeight}
+                onChange={(e) =>
+                  setForm({ ...form, targetWeight: e.target.value })
+                }
+                placeholder="e.g., 65 — we'll create a plan for you"
+                className="mt-1.5"
+              />
             </div>
 
             <div>
@@ -280,6 +307,82 @@ export default function ProfilePage() {
                   </p>
                 </div>
               )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Weight Plan */}
+      {weightPlan && weightPlan.direction !== "maintain" && (
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              Your Weight Plan
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                <div className="text-center">
+                  <p className="text-xs text-gray-400">Current</p>
+                  <p className="text-xl font-bold text-gray-900 dark:text-white">
+                    {weightPlan.currentWeight} kg
+                  </p>
+                </div>
+                <div className="flex-1 flex items-center justify-center px-4">
+                  <div className="h-0.5 flex-1 bg-gray-300 dark:bg-gray-600" />
+                  <span className="px-2 text-xs text-gray-400">
+                    {weightPlan.direction === "lose" ? `-${formatNumber(weightPlan.weightDiff, 1)} kg` : `+${formatNumber(weightPlan.weightDiff, 1)} kg`}
+                  </span>
+                  <div className="h-0.5 flex-1 bg-gray-300 dark:bg-gray-600" />
+                </div>
+                <div className="text-center">
+                  <p className="text-xs text-gray-400">Target</p>
+                  <p className="text-xl font-bold text-emerald-600 dark:text-emerald-400">
+                    {weightPlan.targetWeight} kg
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-center">
+                  <p className="text-xs text-blue-600 dark:text-blue-400">Daily Calories</p>
+                  <p className="text-lg font-bold text-gray-900 dark:text-white mt-0.5">
+                    {formatNumber(weightPlan.dailyCalorieTarget, 0)}
+                  </p>
+                  <p className="text-xs text-gray-400">kcal/day</p>
+                </div>
+                <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg text-center">
+                  <p className="text-xs text-purple-600 dark:text-purple-400">
+                    {weightPlan.direction === "lose" ? "Daily Deficit" : "Daily Surplus"}
+                  </p>
+                  <p className="text-lg font-bold text-gray-900 dark:text-white mt-0.5">
+                    {formatNumber(weightPlan.dailyDeficit, 0)}
+                  </p>
+                  <p className="text-xs text-gray-400">kcal/day</p>
+                </div>
+                <div className="p-3 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg text-center">
+                  <p className="text-xs text-emerald-600 dark:text-emerald-400">Protein Target</p>
+                  <p className="text-lg font-bold text-gray-900 dark:text-white mt-0.5">
+                    {weightPlan.proteinTarget}g
+                  </p>
+                  <p className="text-xs text-gray-400">per day</p>
+                </div>
+                <div className="p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg text-center">
+                  <p className="text-xs text-orange-600 dark:text-orange-400">Est. Timeline</p>
+                  <p className="text-lg font-bold text-gray-900 dark:text-white mt-0.5">
+                    {weightPlan.estimatedWeeks}w
+                  </p>
+                  <p className="text-xs text-gray-400">~{weightPlan.estimatedDate}</p>
+                </div>
+              </div>
+
+              <p className="text-xs text-gray-400 text-center">
+                Based on a safe rate of {weightPlan.weeklyRateKg} kg/week.
+                {weightPlan.direction === "lose"
+                  ? " Eat below your TDEE while keeping protein high to preserve muscle."
+                  : " Eat above your TDEE with adequate protein for lean gains."}
+              </p>
             </div>
           </CardContent>
         </Card>

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUserId } from "@/lib/session";
+import { calculateBMR, calculateTDEE, calculateWeightPlan } from "@/lib/utils";
 
 export async function GET(request: Request) {
   const userId = await getCurrentUserId();
@@ -21,7 +22,7 @@ export async function GET(request: Request) {
   todayEnd.setHours(23, 59, 59, 999);
 
   // Fetch data in parallel
-  const [meals, exercises, goals, todayMeals, todayExercises] =
+  const [meals, exercises, goals, todayMeals, todayExercises, user] =
     await Promise.all([
       db.meal.findMany({
         where: {
@@ -73,6 +74,17 @@ export async function GET(request: Request) {
         select: {
           caloriesBurned: true,
           duration: true,
+        },
+      }),
+      db.user.findUnique({
+        where: { id: userId },
+        select: {
+          weight: true,
+          targetWeight: true,
+          height: true,
+          age: true,
+          gender: true,
+          activityLevel: true,
         },
       }),
     ]);
@@ -163,9 +175,18 @@ export async function GET(request: Request) {
     return { ...goal, current };
   });
 
+  // Calculate weight plan if user has target weight
+  let weightPlan = null;
+  if (user?.weight && user?.targetWeight && user?.height && user?.age && user?.gender && user?.activityLevel) {
+    const bmr = calculateBMR(user.weight, user.height, user.age, user.gender);
+    const tdee = calculateTDEE(bmr, user.activityLevel);
+    weightPlan = calculateWeightPlan(user.weight, user.targetWeight, tdee);
+  }
+
   return NextResponse.json({
     todayTotals,
     chartData: Object.values(dailyData),
     goals: goalsWithProgress,
+    weightPlan,
   });
 }

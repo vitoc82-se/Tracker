@@ -26,6 +26,7 @@ export default function OnboardingPage() {
     age: "",
     height: "",
     weight: "",
+    targetWeight: "",
     activityLevel: "",
   });
   const [goals, setGoals] = useState<Record<string, string>>({});
@@ -152,7 +153,7 @@ export default function OnboardingPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-3 gap-4">
                 <div>
                   <Label htmlFor="height">Height (cm)</Label>
                   <Input
@@ -169,7 +170,7 @@ export default function OnboardingPage() {
                   />
                 </div>
                 <div>
-                  <Label htmlFor="weight">Weight (kg)</Label>
+                  <Label htmlFor="weight">Current Weight (kg)</Label>
                   <Input
                     id="weight"
                     type="number"
@@ -180,6 +181,20 @@ export default function OnboardingPage() {
                     }
                     placeholder="70"
                     required
+                    className="mt-1.5"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="targetWeight">Target Weight (kg)</Label>
+                  <Input
+                    id="targetWeight"
+                    type="number"
+                    step="0.1"
+                    value={form.targetWeight}
+                    onChange={(e) =>
+                      setForm({ ...form, targetWeight: e.target.value })
+                    }
+                    placeholder="65"
                     className="mt-1.5"
                   />
                 </div>

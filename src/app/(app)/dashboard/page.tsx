@@ -16,7 +16,7 @@ import {
   Cell,
   Legend,
 } from "recharts";
-import { Flame, Dumbbell, Target, TrendingUp, Calendar } from "lucide-react";
+import { Flame, Dumbbell, Target, TrendingUp, Calendar, Scale } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { formatNumber } from "@/lib/utils";
@@ -47,6 +47,19 @@ interface DashboardData {
     current: number;
     unit: string;
   }>;
+  weightPlan: {
+    direction: "lose" | "gain" | "maintain";
+    currentWeight: number;
+    targetWeight: number;
+    weightDiff: number;
+    tdee: number;
+    dailyCalorieTarget: number;
+    dailyDeficit: number;
+    weeklyRateKg: number;
+    estimatedWeeks: number;
+    estimatedDate: string;
+    proteinTarget: number;
+  } | null;
 }
 
 const MACRO_COLORS = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444"];
@@ -238,6 +251,83 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Weight Plan */}
+      {data?.weightPlan && data.weightPlan.direction !== "maintain" && (
+        <Card className="border-emerald-200 dark:border-emerald-800">
+          <CardContent className="p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-900/30">
+                <Scale className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
+                  Your Weight Plan
+                </h3>
+                <p className="text-xs text-gray-400">
+                  {data.weightPlan.currentWeight} kg &rarr; {data.weightPlan.targetWeight} kg
+                  ({data.weightPlan.direction === "lose" ? "lose" : "gain"} {formatNumber(data.weightPlan.weightDiff, 1)} kg)
+                </p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="text-center p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                <p className="text-xs text-blue-600 dark:text-blue-400">Daily Target</p>
+                <p className="text-lg font-bold text-gray-900 dark:text-white">
+                  {formatNumber(data.weightPlan.dailyCalorieTarget, 0)}
+                </p>
+                <p className="text-xs text-gray-400">kcal</p>
+              </div>
+              <div className="text-center p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
+                <p className="text-xs text-purple-600 dark:text-purple-400">
+                  {data.weightPlan.direction === "lose" ? "Deficit" : "Surplus"}
+                </p>
+                <p className="text-lg font-bold text-gray-900 dark:text-white">
+                  {formatNumber(data.weightPlan.dailyDeficit, 0)}
+                </p>
+                <p className="text-xs text-gray-400">kcal/day</p>
+              </div>
+              <div className="text-center p-3 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg">
+                <p className="text-xs text-emerald-600 dark:text-emerald-400">Protein</p>
+                <p className="text-lg font-bold text-gray-900 dark:text-white">
+                  {data.weightPlan.proteinTarget}g
+                </p>
+                <p className="text-xs text-gray-400">per day</p>
+              </div>
+              <div className="text-center p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg">
+                <p className="text-xs text-orange-600 dark:text-orange-400">Timeline</p>
+                <p className="text-lg font-bold text-gray-900 dark:text-white">
+                  ~{data.weightPlan.estimatedWeeks}w
+                </p>
+                <p className="text-xs text-gray-400">{data.weightPlan.estimatedDate}</p>
+              </div>
+            </div>
+            {totals.calories > 0 && (
+              <div className="mt-3 p-2 rounded-lg bg-gray-50 dark:bg-gray-700/50">
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-gray-500">Today&apos;s intake vs target</span>
+                  <span className={`font-medium ${
+                    totals.calories <= data.weightPlan.dailyCalorieTarget
+                      ? "text-emerald-600"
+                      : "text-red-500"
+                  }`}>
+                    {formatNumber(totals.calories, 0)} / {formatNumber(data.weightPlan.dailyCalorieTarget, 0)} kcal
+                  </span>
+                </div>
+                <Progress
+                  value={totals.calories}
+                  max={data.weightPlan.dailyCalorieTarget}
+                  indicatorClassName={
+                    totals.calories <= data.weightPlan.dailyCalorieTarget
+                      ? "bg-emerald-500"
+                      : "bg-red-500"
+                  }
+                />
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Period averages */}
       {selectedRange >= 14 && daysWithData > 0 && (
