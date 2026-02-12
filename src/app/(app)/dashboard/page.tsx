@@ -4,6 +4,8 @@ import { useEffect, useState, useCallback } from "react";
 import {
   BarChart,
   Bar,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -12,8 +14,9 @@ import {
   PieChart,
   Pie,
   Cell,
+  Legend,
 } from "recharts";
-import { Flame, Dumbbell, Target, TrendingUp } from "lucide-react";
+import { Flame, Dumbbell, Target, TrendingUp, Calendar } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { formatNumber } from "@/lib/utils";
@@ -48,13 +51,21 @@ interface DashboardData {
 
 const MACRO_COLORS = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444"];
 
+const TIME_RANGES = [
+  { label: "7D", days: 7 },
+  { label: "14D", days: 14 },
+  { label: "30D", days: 30 },
+];
+
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [selectedRange, setSelectedRange] = useState(7);
 
-  const fetchDashboard = useCallback(async () => {
+  const fetchDashboard = useCallback(async (days: number) => {
+    setLoading(true);
     try {
-      const res = await fetch("/api/dashboard?days=7");
+      const res = await fetch(`/api/dashboard?days=${days}`);
       if (res.ok) {
         setData(await res.json());
       }
@@ -66,10 +77,10 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    fetchDashboard();
-  }, [fetchDashboard]);
+    fetchDashboard(selectedRange);
+  }, [fetchDashboard, selectedRange]);
 
-  if (loading) {
+  if (loading && !data) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600" />
@@ -100,20 +111,56 @@ export default function DashboardPage() {
       month: "short",
       day: "numeric",
     }),
+    netCalories: d.calories - d.caloriesBurned,
   }));
+
+  // Monthly summary stats
+  const periodTotals = (data?.chartData || []).reduce(
+    (acc, d) => ({
+      calories: acc.calories + d.calories,
+      caloriesBurned: acc.caloriesBurned + d.caloriesBurned,
+      exerciseMinutes: acc.exerciseMinutes + d.exerciseMinutes,
+      protein: acc.protein + d.protein,
+    }),
+    { calories: 0, caloriesBurned: 0, exerciseMinutes: 0, protein: 0 }
+  );
+
+  const daysWithData = (data?.chartData || []).filter(
+    (d) => d.calories > 0 || d.caloriesBurned > 0
+  ).length;
+  const avgCalories = daysWithData > 0 ? periodTotals.calories / daysWithData : 0;
+  const avgBurned = daysWithData > 0 ? periodTotals.caloriesBurned / daysWithData : 0;
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-          Dashboard
-        </h1>
-        <p className="text-gray-500 dark:text-gray-400 mt-1">
-          Your nutrition and fitness overview for today
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+            Dashboard
+          </h1>
+          <p className="text-gray-500 dark:text-gray-400 mt-1">
+            Your nutrition and fitness overview
+          </p>
+        </div>
+        {/* Time range toggle */}
+        <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
+          {TIME_RANGES.map((range) => (
+            <button
+              key={range.days}
+              onClick={() => setSelectedRange(range.days)}
+              className={`px-3 py-1.5 text-sm rounded-md font-medium transition-colors ${
+                selectedRange === range.days
+                  ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm"
+                  : "text-gray-500 dark:text-gray-400 hover:text-gray-700"
+              }`}
+            >
+              {range.label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Summary cards */}
+      {/* Today's summary cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
           <CardContent className="p-5">
@@ -128,7 +175,7 @@ export default function DashboardPage() {
                 <p className="text-2xl font-bold text-gray-900 dark:text-white">
                   {formatNumber(totals.calories, 0)}
                 </p>
-                <p className="text-xs text-gray-400">kcal consumed</p>
+                <p className="text-xs text-gray-400">kcal consumed today</p>
               </div>
             </div>
           </CardContent>
@@ -192,37 +239,137 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Calorie chart */}
-        <Card className="lg:col-span-2 min-w-0">
-          <CardHeader>
-            <CardTitle>Calories - Last 7 Days</CardTitle>
-          </CardHeader>
-          <CardContent className="overflow-hidden">
-            {chartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
+      {/* Period averages */}
+      {selectedRange >= 14 && daysWithData > 0 && (
+        <Card>
+          <CardContent className="p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <Calendar className="w-4 h-4 text-gray-400" />
+              <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400">
+                {selectedRange}-Day Averages
+              </h3>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div>
+                <p className="text-xs text-gray-400">Avg. Intake</p>
+                <p className="text-lg font-bold text-gray-900 dark:text-white">
+                  {formatNumber(avgCalories, 0)} <span className="text-xs font-normal text-gray-400">kcal/day</span>
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-400">Avg. Burned</p>
+                <p className="text-lg font-bold text-gray-900 dark:text-white">
+                  {formatNumber(avgBurned, 0)} <span className="text-xs font-normal text-gray-400">kcal/day</span>
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-400">Total Exercise</p>
+                <p className="text-lg font-bold text-gray-900 dark:text-white">
+                  {formatNumber(periodTotals.exerciseMinutes, 0)} <span className="text-xs font-normal text-gray-400">min</span>
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-400">Total Protein</p>
+                <p className="text-lg font-bold text-gray-900 dark:text-white">
+                  {formatNumber(periodTotals.protein, 0)} <span className="text-xs font-normal text-gray-400">g</span>
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Intake vs Exercise trend */}
+      <Card className="min-w-0">
+        <CardHeader>
+          <CardTitle>Intake vs Exercise — Last {selectedRange} Days</CardTitle>
+        </CardHeader>
+        <CardContent className="overflow-hidden">
+          {chartData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={300}>
+              {selectedRange <= 14 ? (
                 <BarChart data={chartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="date" tick={{ fontSize: 12 }} />
-                  <YAxis tick={{ fontSize: 12 }} />
+                  <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
                   <Tooltip />
+                  <Legend />
                   <Bar
                     dataKey="calories"
                     fill="#10b981"
                     radius={[4, 4, 0, 0]}
-                    name="Consumed"
+                    name="Consumed (kcal)"
                   />
                   <Bar
                     dataKey="caloriesBurned"
                     fill="#ef4444"
                     radius={[4, 4, 0, 0]}
-                    name="Burned"
+                    name="Burned (kcal)"
+                  />
+                </BarChart>
+              ) : (
+                <LineChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis dataKey="date" tick={{ fontSize: 10 }} interval={2} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <Tooltip />
+                  <Legend />
+                  <Line
+                    type="monotone"
+                    dataKey="calories"
+                    stroke="#10b981"
+                    strokeWidth={2}
+                    dot={false}
+                    name="Consumed (kcal)"
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="caloriesBurned"
+                    stroke="#ef4444"
+                    strokeWidth={2}
+                    dot={false}
+                    name="Burned (kcal)"
+                  />
+                </LineChart>
+              )}
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex items-center justify-center h-[300px] text-gray-400">
+              No data yet. Start logging meals!
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Exercise minutes trend */}
+        <Card className="lg:col-span-2 min-w-0">
+          <CardHeader>
+            <CardTitle>Exercise Minutes</CardTitle>
+          </CardHeader>
+          <CardContent className="overflow-hidden">
+            {chartData.some((d) => d.exerciseMinutes > 0) ? (
+              <ResponsiveContainer width="100%" height={250}>
+                <BarChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fontSize: 11 }}
+                    interval={selectedRange > 14 ? 2 : 0}
+                  />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <Tooltip />
+                  <Bar
+                    dataKey="exerciseMinutes"
+                    fill="#3b82f6"
+                    radius={[4, 4, 0, 0]}
+                    name="Minutes"
                   />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <div className="flex items-center justify-center h-[300px] text-gray-400">
-                No data yet. Start logging meals!
+              <div className="flex items-center justify-center h-[250px] text-gray-400">
+                No exercise logged yet
               </div>
             )}
           </CardContent>
