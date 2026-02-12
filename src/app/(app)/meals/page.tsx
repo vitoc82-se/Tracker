@@ -202,6 +202,29 @@ export default function MealsPage() {
     }
   };
 
+  const removeItem = (index: number) => {
+    setForm((prev) => {
+      const newItems = prev.items.filter((_, i) => i !== index);
+      const totals = newItems.reduce(
+        (acc, item) => ({
+          calories: acc.calories + (item.calories || 0),
+          protein: acc.protein + (item.protein || 0),
+          carbs: acc.carbs + (item.carbs || 0),
+          fat: acc.fat + (item.fat || 0),
+        }),
+        { calories: 0, protein: 0, carbs: 0, fat: 0 }
+      );
+      return {
+        ...prev,
+        items: newItems,
+        calories: newItems.length > 0 ? String(totals.calories) : prev.calories,
+        protein: newItems.length > 0 ? String(totals.protein) : prev.protein,
+        carbs: newItems.length > 0 ? String(totals.carbs) : prev.carbs,
+        fat: newItems.length > 0 ? String(totals.fat) : prev.fat,
+      };
+    });
+  };
+
   const resetForm = () => {
     setForm({
       name: "",
@@ -432,9 +455,19 @@ export default function MealsPage() {
                             </span>
                           )}
                         </span>
-                        <span className="text-gray-500">
-                          {formatNumber(item.calories, 0)} kcal
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-gray-500">
+                            {formatNumber(item.calories, 0)} kcal
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => removeItem(i)}
+                            className="text-gray-400 hover:text-red-500 transition-colors p-1 rounded"
+                            title="Remove item"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
