@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Plus, Trash2, Dumbbell, X, Calendar } from "lucide-react";
+import { Plus, Trash2, Pencil, Dumbbell, X, Calendar } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,24 +52,49 @@ const QUICK_ACTIVITIES = [
   { label: "Other", type: "mixed" },
 ];
 
+// MET values by activity and intensity (low/medium/high)
+const MET_VALUES: Record<string, Record<string, number>> = {
+  Walking:            { low: 2.5, medium: 3.5, high: 4.5 },
+  Running:            { low: 7.0, medium: 9.0, high: 12.0 },
+  Cycling:            { low: 4.0, medium: 6.0, high: 10.0 },
+  Swimming:           { low: 5.0, medium: 7.0, high: 10.0 },
+  "Gym / Weights":    { low: 3.0, medium: 5.0, high: 6.0 },
+  "Yoga / Stretching":{ low: 2.0, medium: 3.0, high: 4.0 },
+  Sports:             { low: 4.0, medium: 6.0, high: 8.0 },
+  Other:              { low: 3.0, medium: 4.0, high: 6.0 },
+};
+
+const DEFAULT_WEIGHT_KG = 70;
+
+function estimateCalories(activity: string, durationMin: number, intensity: string, weightKg: number): number {
+  const mets = MET_VALUES[activity] || MET_VALUES["Other"];
+  const met = mets[intensity] || mets.medium;
+  return Math.round(met * weightKg * (durationMin / 60));
+}
+
+const INITIAL_FORM = {
+  name: "",
+  exerciseType: "cardio",
+  duration: "",
+  caloriesBurned: "",
+  intensity: "medium",
+  notes: "",
+};
+
 export default function ExercisesPage() {
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [userWeight, setUserWeight] = useState<number>(DEFAULT_WEIGHT_KG);
+  const [caloriesManuallySet, setCaloriesManuallySet] = useState(false);
 
-  const [form, setForm] = useState({
-    name: "",
-    exerciseType: "cardio",
-    duration: "",
-    caloriesBurned: "",
-    intensity: "medium",
-    notes: "",
-  });
+  const [form, setForm] = useState(INITIAL_FORM);
 
   const fetchExercises = useCallback(async () => {
     try {
-      const res = await fetch("/api/exercises?limit=30");
+      const res = await fetch("/api/exercises?limit=30", { cache: "no-store" });
       if (res.ok) setExercises(await res.json());
     } catch (err) {
       console.error("Failed to fetch exercises:", err);
@@ -78,12 +103,58 @@ export default function ExercisesPage() {
     }
   }, []);
 
+  // Fetch user weight for calorie estimation
+  useEffect(() => {
+    fetch("/api/profile", { cache: "no-store" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((user) => {
+        if (user?.weight) setUserWeight(user.weight);
+      })
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
     fetchExercises();
   }, [fetchExercises]);
 
+  // Auto-estimate calories when activity, duration, or intensity changes
+  useEffect(() => {
+    if (caloriesManuallySet) return;
+    const duration = parseInt(form.duration);
+    if (!form.name || !duration || duration <= 0) return;
+    const estimated = estimateCalories(form.name, duration, form.intensity, userWeight);
+    setForm((prev) => ({ ...prev, caloriesBurned: String(estimated) }));
+  }, [form.name, form.duration, form.intensity, userWeight, caloriesManuallySet]);
+
   const handleQuickSelect = (activity: { label: string; type: string }) => {
-    setForm({ ...form, name: activity.label, exerciseType: activity.type });
+    setCaloriesManuallySet(false);
+    setForm((prev) => ({ ...prev, name: activity.label, exerciseType: activity.type }));
+  };
+
+  const resetForm = () => {
+    setForm(INITIAL_FORM);
+    setEditingId(null);
+    setCaloriesManuallySet(false);
+  };
+
+  const openForm = () => {
+    resetForm();
+    setShowForm(true);
+  };
+
+  const startEdit = (ex: Exercise) => {
+    setEditingId(ex.id);
+    setCaloriesManuallySet(true); // keep their existing value
+    setForm({
+      name: ex.name,
+      exerciseType: ex.exerciseType,
+      duration: String(ex.duration),
+      caloriesBurned: String(ex.caloriesBurned),
+      intensity: ex.intensity || "medium",
+      notes: ex.notes || "",
+    });
+    setShowForm(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -91,29 +162,27 @@ export default function ExercisesPage() {
     setSubmitting(true);
 
     try {
-      const res = await fetch("/api/exercises", {
-        method: "POST",
+      const payload = {
+        name: form.name,
+        exerciseType: form.exerciseType,
+        duration: parseInt(form.duration) || 0,
+        caloriesBurned: parseFloat(form.caloriesBurned) || 0,
+        intensity: form.intensity,
+        notes: form.notes || undefined,
+      };
+
+      const url = editingId ? `/api/exercises/${editingId}` : "/api/exercises";
+      const method = editingId ? "PUT" : "POST";
+
+      const res = await fetch(url, {
+        method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: form.name,
-          exerciseType: form.exerciseType,
-          duration: parseInt(form.duration) || 0,
-          caloriesBurned: parseFloat(form.caloriesBurned) || 0,
-          intensity: form.intensity,
-          notes: form.notes || undefined,
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (res.ok) {
         setShowForm(false);
-        setForm({
-          name: "",
-          exerciseType: "cardio",
-          duration: "",
-          caloriesBurned: "",
-          intensity: "medium",
-          notes: "",
-        });
+        resetForm();
         fetchExercises();
       }
     } catch (err) {
@@ -156,7 +225,7 @@ export default function ExercisesPage() {
             Log your daily activity summary
           </p>
         </div>
-        <Button onClick={() => setShowForm(!showForm)}>
+        <Button onClick={() => showForm ? (setShowForm(false), resetForm()) : openForm()}>
           {showForm ? (
             <>
               <X className="w-4 h-4 mr-2" /> Cancel
@@ -172,7 +241,7 @@ export default function ExercisesPage() {
       {showForm && (
         <Card>
           <CardHeader>
-            <CardTitle>Log Today&apos;s Activity</CardTitle>
+            <CardTitle>{editingId ? "Edit Activity" : "Log Today\u0027s Activity"}</CardTitle>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-5">
@@ -221,23 +290,30 @@ export default function ExercisesPage() {
                     id="duration"
                     type="number"
                     value={form.duration}
-                    onChange={(e) =>
-                      setForm({ ...form, duration: e.target.value })
-                    }
+                    onChange={(e) => {
+                      setCaloriesManuallySet(false);
+                      setForm((prev) => ({ ...prev, duration: e.target.value }));
+                    }}
                     placeholder="45"
                     required
                     className="mt-1.5"
                   />
                 </div>
                 <div>
-                  <Label htmlFor="calBurned">Calories Burned (est.)</Label>
+                  <Label htmlFor="calBurned">
+                    Calories Burned
+                    {!caloriesManuallySet && form.caloriesBurned && (
+                      <span className="text-xs text-emerald-600 ml-1">(est.)</span>
+                    )}
+                  </Label>
                   <Input
                     id="calBurned"
                     type="number"
                     value={form.caloriesBurned}
-                    onChange={(e) =>
-                      setForm({ ...form, caloriesBurned: e.target.value })
-                    }
+                    onChange={(e) => {
+                      setCaloriesManuallySet(true);
+                      setForm((prev) => ({ ...prev, caloriesBurned: e.target.value }));
+                    }}
                     placeholder="300"
                     className="mt-1.5"
                   />
@@ -247,9 +323,10 @@ export default function ExercisesPage() {
                   <Select
                     id="intensity"
                     value={form.intensity}
-                    onChange={(e) =>
-                      setForm({ ...form, intensity: e.target.value })
-                    }
+                    onChange={(e) => {
+                      setCaloriesManuallySet(false);
+                      setForm((prev) => ({ ...prev, intensity: e.target.value }));
+                    }}
                     className="mt-1.5"
                   >
                     <option value="low">Light</option>
@@ -274,7 +351,7 @@ export default function ExercisesPage() {
               </div>
 
               <Button type="submit" disabled={submitting} className="w-full">
-                {submitting ? "Saving..." : "Save Activity"}
+                {submitting ? "Saving..." : editingId ? "Update Activity" : "Save Activity"}
               </Button>
             </form>
           </CardContent>
@@ -348,14 +425,24 @@ export default function ExercisesPage() {
                               </p>
                             )}
                           </div>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => deleteExercise(ex.id)}
-                            className="text-gray-400 hover:text-red-500"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
+                          <div className="flex gap-1 shrink-0">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => startEdit(ex)}
+                              className="text-gray-400 hover:text-blue-500"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => deleteExercise(ex.id)}
+                              className="text-gray-400 hover:text-red-500"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
                         </div>
                       </CardContent>
                     </Card>
