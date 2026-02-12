@@ -40,7 +40,7 @@ export default function ProfilePage() {
 
   const fetchProfile = useCallback(async () => {
     try {
-      const res = await fetch("/api/profile");
+      const res = await fetch("/api/profile", { cache: "no-store" });
       if (res.ok) {
         const data = await res.json();
         setProfile(data);
@@ -79,6 +79,7 @@ export default function ProfilePage() {
 
       if (res.ok) {
         setSaved(true);
+        fetchProfile();
         setTimeout(() => setSaved(false), 3000);
       }
     } catch (err) {
