@@ -49,8 +49,9 @@ export default function SignInPage() {
       }
 
       router.push("/dashboard");
-    } catch {
-      setError("Something went wrong. Please try again.");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      setError(`Something went wrong: ${msg}`);
       setLoading(false);
     }
   };
