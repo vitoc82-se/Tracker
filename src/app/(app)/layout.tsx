@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { db } from "@/lib/db";
 import { Navbar } from "@/components/navbar";
 
 export default async function AppLayout({
@@ -12,6 +13,15 @@ export default async function AppLayout({
 
   if (!session) {
     redirect("/auth/signin");
+  }
+
+  const user = await db.user.findUnique({
+    where: { id: session.user.id },
+    select: { gender: true, height: true, weight: true },
+  });
+
+  if (!user?.gender || !user?.height || !user?.weight) {
+    redirect("/onboarding");
   }
 
   return (

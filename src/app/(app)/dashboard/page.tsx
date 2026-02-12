@@ -194,11 +194,11 @@ export default function DashboardPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Calorie chart */}
-        <Card className="lg:col-span-2">
+        <Card className="lg:col-span-2 min-w-0">
           <CardHeader>
             <CardTitle>Calories - Last 7 Days</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="overflow-hidden">
             {chartData.length > 0 ? (
               <ResponsiveContainer width="100%" height={300}>
                 <BarChart data={chartData}>
@@ -229,11 +229,11 @@ export default function DashboardPage() {
         </Card>
 
         {/* Macro breakdown */}
-        <Card>
+        <Card className="min-w-0">
           <CardHeader>
             <CardTitle>Today&apos;s Macros</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="overflow-hidden">
             {macroData.length > 0 ? (
               <div className="flex flex-col items-center">
                 <ResponsiveContainer width="100%" height={200}>

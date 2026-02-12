@@ -56,6 +56,7 @@ export default function MealsPage() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeError, setAnalyzeError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [imageBase64, setImageBase64] = useState<string | null>(null);
@@ -107,6 +108,7 @@ export default function MealsPage() {
   const analyzeImage = async () => {
     if (!imageBase64) return;
     setAnalyzing(true);
+    setAnalyzeError("");
 
     try {
       const res = await fetch("/api/analyze", {
@@ -127,9 +129,15 @@ export default function MealsPage() {
           fiber: String(analysis.totalFiber || ""),
           items: analysis.items || [],
         }));
+      } else {
+        const data = await res.json().catch(() => null);
+        setAnalyzeError(
+          data?.error || "Analysis failed. Please try again or enter values manually."
+        );
       }
     } catch (err) {
       console.error("Analysis failed:", err);
+      setAnalyzeError("Could not connect to the analysis service. Please enter values manually.");
     } finally {
       setAnalyzing(false);
     }
@@ -208,6 +216,7 @@ export default function MealsPage() {
     });
     setPreviewImage(null);
     setImageBase64(null);
+    setAnalyzeError("");
   };
 
   return (
@@ -251,7 +260,7 @@ export default function MealsPage() {
                       alt="Food preview"
                       className="max-h-48 mx-auto rounded-lg object-cover"
                     />
-                    <div className="flex gap-2 justify-center">
+                    <div className="flex gap-2 justify-center flex-wrap">
                       <Button
                         type="button"
                         onClick={analyzeImage}
@@ -268,11 +277,17 @@ export default function MealsPage() {
                         onClick={() => {
                           setPreviewImage(null);
                           setImageBase64(null);
+                          setAnalyzeError("");
                         }}
                       >
                         Remove
                       </Button>
                     </div>
+                    {analyzeError && (
+                      <p className="text-sm text-red-600 dark:text-red-400">
+                        {analyzeError}
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <button
@@ -469,17 +484,17 @@ export default function MealsPage() {
           {meals.map((meal) => (
             <Card key={meal.id}>
               <CardContent className="p-4">
-                <div className="flex items-start justify-between">
-                  <div className="flex gap-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex gap-4 min-w-0">
                     {meal.imageUrl && (
                       <img
                         src={meal.imageUrl}
                         alt={meal.name}
-                        className="w-16 h-16 rounded-lg object-cover"
+                        className="w-16 h-16 rounded-lg object-cover shrink-0"
                       />
                     )}
-                    <div>
-                      <div className="flex items-center gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="font-semibold text-gray-900 dark:text-white">
                           {meal.name}
                         </h3>
@@ -487,7 +502,7 @@ export default function MealsPage() {
                           {MEAL_TYPE_LABELS[meal.mealType] || meal.mealType}
                         </span>
                       </div>
-                      <div className="flex gap-4 mt-1.5 text-sm text-gray-500 dark:text-gray-400">
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5 text-sm text-gray-500 dark:text-gray-400">
                         <span>{formatNumber(meal.calories, 0)} kcal</span>
                         <span>P: {formatNumber(meal.protein, 0)}g</span>
                         <span>C: {formatNumber(meal.carbs, 0)}g</span>

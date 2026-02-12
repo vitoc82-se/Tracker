@@ -344,9 +344,9 @@ export default function ExercisesPage() {
           {exercises.map((ex) => (
             <Card key={ex.id}>
               <CardContent className="p-4">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <div className="flex items-center gap-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <h3 className="font-semibold text-gray-900 dark:text-white">
                         {ex.name}
                       </h3>
@@ -364,7 +364,7 @@ export default function ExercisesPage() {
                         </span>
                       )}
                     </div>
-                    <div className="flex gap-4 mt-1.5 text-sm text-gray-500 dark:text-gray-400">
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1.5 text-sm text-gray-500 dark:text-gray-400">
                       <span>{ex.duration} min</span>
                       <span>
                         {formatNumber(ex.caloriesBurned, 0)} kcal burned

@@ -2,10 +2,6 @@ import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { getCurrentUserId } from "@/lib/session";
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
-
 export async function POST(request: Request) {
   const userId = await getCurrentUserId();
   if (!userId) {
@@ -18,6 +14,17 @@ export async function POST(request: Request) {
     if (!image) {
       return NextResponse.json({ error: "Image is required" }, { status: 400 });
     }
+
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return NextResponse.json(
+        { error: "AI analysis is not configured. Please set the ANTHROPIC_API_KEY environment variable." },
+        { status: 503 }
+      );
+    }
+
+    const anthropic = new Anthropic({
+      apiKey: process.env.ANTHROPIC_API_KEY,
+    });
 
     const message = await anthropic.messages.create({
       model: "claude-sonnet-4-5-20250929",
