@@ -42,7 +42,7 @@ export default function GoalsPage() {
 
   const fetchGoals = useCallback(async () => {
     try {
-      const res = await fetch("/api/goals");
+      const res = await fetch("/api/goals", { cache: "no-store" });
       if (res.ok) setGoals(await res.json());
     } catch (err) {
       console.error("Failed to fetch goals:", err);

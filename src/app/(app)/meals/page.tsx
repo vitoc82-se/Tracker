@@ -6,6 +6,7 @@ import {
   Camera,
   Sparkles,
   Trash2,
+  Pencil,
   UtensilsCrossed,
   X,
 } from "lucide-react";
@@ -58,6 +59,7 @@ export default function MealsPage() {
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeError, setAnalyzeError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [imageBase64, setImageBase64] = useState<string | null>(null);
   const [imageMimeType, setImageMimeType] = useState<string>("image/jpeg");
@@ -77,7 +79,7 @@ export default function MealsPage() {
 
   const fetchMeals = useCallback(async () => {
     try {
-      const res = await fetch("/api/meals?limit=20");
+      const res = await fetch("/api/meals?limit=20", { cache: "no-store" });
       if (res.ok) setMeals(await res.json());
     } catch (err) {
       console.error("Failed to fetch meals:", err);
@@ -143,12 +145,32 @@ export default function MealsPage() {
     }
   };
 
+  const startEdit = (meal: Meal) => {
+    setEditingId(meal.id);
+    setForm({
+      name: meal.name,
+      mealType: meal.mealType,
+      calories: String(meal.calories),
+      protein: String(meal.protein),
+      carbs: String(meal.carbs),
+      fat: String(meal.fat),
+      fiber: String(meal.fiber),
+      notes: meal.notes || "",
+      items: [],
+    });
+    if (meal.imageUrl) {
+      setPreviewImage(meal.imageUrl);
+    }
+    setShowForm(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
 
     try {
-      // Upload image if present
+      // Upload image if present (only for new images, not existing URLs)
       let imageUrl: string | undefined;
       if (previewImage && fileInputRef.current?.files?.[0]) {
         const formData = new FormData();
@@ -163,21 +185,26 @@ export default function MealsPage() {
         }
       }
 
-      const res = await fetch("/api/meals", {
-        method: "POST",
+      const payload = {
+        name: form.name,
+        mealType: form.mealType,
+        calories: parseFloat(form.calories) || 0,
+        protein: parseFloat(form.protein) || 0,
+        carbs: parseFloat(form.carbs) || 0,
+        fat: parseFloat(form.fat) || 0,
+        fiber: parseFloat(form.fiber) || 0,
+        notes: form.notes || undefined,
+        ...(imageUrl ? { imageUrl } : {}),
+        ...(!editingId ? { items: form.items } : {}),
+      };
+
+      const url = editingId ? `/api/meals/${editingId}` : "/api/meals";
+      const method = editingId ? "PUT" : "POST";
+
+      const res = await fetch(url, {
+        method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: form.name,
-          mealType: form.mealType,
-          calories: parseFloat(form.calories) || 0,
-          protein: parseFloat(form.protein) || 0,
-          carbs: parseFloat(form.carbs) || 0,
-          fat: parseFloat(form.fat) || 0,
-          fiber: parseFloat(form.fiber) || 0,
-          notes: form.notes || undefined,
-          imageUrl,
-          items: form.items,
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (res.ok) {
@@ -237,6 +264,7 @@ export default function MealsPage() {
       notes: "",
       items: [],
     });
+    setEditingId(null);
     setPreviewImage(null);
     setImageBase64(null);
     setAnalyzeError("");
@@ -253,7 +281,7 @@ export default function MealsPage() {
             Log your meals and track nutrition
           </p>
         </div>
-        <Button onClick={() => setShowForm(!showForm)}>
+        <Button onClick={() => { if (showForm) { setShowForm(false); resetForm(); } else { resetForm(); setShowForm(true); } }}>
           {showForm ? (
             <>
               <X className="w-4 h-4 mr-2" /> Cancel
@@ -270,7 +298,7 @@ export default function MealsPage() {
       {showForm && (
         <Card>
           <CardHeader>
-            <CardTitle>Log a Meal</CardTitle>
+            <CardTitle>{editingId ? "Edit Meal" : "Log a Meal"}</CardTitle>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-5">
@@ -488,7 +516,7 @@ export default function MealsPage() {
               </div>
 
               <Button type="submit" disabled={submitting} className="w-full">
-                {submitting ? "Saving..." : "Save Meal"}
+                {submitting ? "Saving..." : editingId ? "Update Meal" : "Save Meal"}
               </Button>
             </form>
           </CardContent>
@@ -546,14 +574,24 @@ export default function MealsPage() {
                       </p>
                     </div>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => deleteMeal(meal.id)}
-                    className="text-gray-400 hover:text-red-500"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
+                  <div className="flex gap-1 shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => startEdit(meal)}
+                      className="text-gray-400 hover:text-blue-500"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => deleteMeal(meal.id)}
+                      className="text-gray-400 hover:text-red-500"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
                 </div>
               </CardContent>
             </Card>

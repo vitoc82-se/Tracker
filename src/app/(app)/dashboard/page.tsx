@@ -78,7 +78,7 @@ export default function DashboardPage() {
   const fetchDashboard = useCallback(async (days: number) => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/dashboard?days=${days}`);
+      const res = await fetch(`/api/dashboard?days=${days}`, { cache: "no-store" });
       if (res.ok) {
         setData(await res.json());
       }

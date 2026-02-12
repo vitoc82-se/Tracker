@@ -3,6 +3,8 @@ import { db } from "@/lib/db";
 import { getCurrentUserId } from "@/lib/session";
 import { calculateBMR, calculateTDEE, calculateWeightPlan } from "@/lib/utils";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(request: Request) {
   const userId = await getCurrentUserId();
   if (!userId) {
