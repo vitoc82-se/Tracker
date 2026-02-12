@@ -89,11 +89,22 @@ Be as accurate as possible with nutritional estimates based on typical serving s
     const analysis = JSON.parse(jsonStr);
 
     return NextResponse.json(analysis);
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("AI analysis error:", error);
-    return NextResponse.json(
-      { error: "Failed to analyze image" },
-      { status: 500 }
-    );
+
+    // Surface the actual error message for debugging
+    let message = "Failed to analyze image";
+    let status = 500;
+
+    if (error instanceof Anthropic.APIError) {
+      message = `Anthropic API error: ${error.message}`;
+      status = error.status || 500;
+    } else if (error instanceof SyntaxError) {
+      message = "AI returned invalid data. Please try again.";
+    } else if (error instanceof Error) {
+      message = error.message;
+    }
+
+    return NextResponse.json({ error: message }, { status });
   }
 }
