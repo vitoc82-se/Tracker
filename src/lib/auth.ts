@@ -25,6 +25,7 @@ export const authOptions: NextAuthOptions = {
 
         const user = await db.user.findUnique({
           where: { email: credentials.email },
+          select: { id: true, email: true, name: true, image: true, password: true },
         });
 
         if (!user || !user.password) {
