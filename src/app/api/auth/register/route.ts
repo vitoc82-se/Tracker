@@ -20,7 +20,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const existing = await db.user.findUnique({ where: { email } });
+    const existing = await db.user.findUnique({
+      where: { email },
+      select: { id: true },
+    });
     if (existing) {
       return NextResponse.json(
         { error: "An account with this email already exists" },
