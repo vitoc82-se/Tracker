@@ -1,72 +1,61 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { Lightbulb, Plus, Trash2, X, Sparkles, Loader2, Pencil, Check } from "lucide-react";
+import { useEffect, useState, useCallback, useMemo } from "react";
+import Link from "next/link";
+import {
+  Lightbulb,
+  Plus,
+  X,
+  Search,
+  Star,
+  ChevronRight,
+  LayoutGrid,
+  Loader2,
+} from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Idea,
+  STATUSES,
+  PRIORITIES,
+  STATUS_STYLES,
+  PRIORITY_STYLES,
+  IMPACT_STYLES,
+  COMPLEXITY_STYLES,
+  PRIORITY_WEIGHT,
+  EFFORT_WEIGHT,
+  isQuickWin,
+  valueEffortScore,
+} from "./ideas-shared";
 
-interface Idea {
-  id: string;
-  title: string;
-  notes: string | null;
-  status: string;
-  priority: string;
-  complexity: string | null;
-  scope: string | null;
-  aiEstimatedAt: string | null;
-  createdAt: string;
-}
+type SortKey = "newest" | "priority" | "effort" | "quickwins";
 
-const STATUSES = [
-  { value: "new", label: "New" },
-  { value: "considering", label: "Considering" },
-  { value: "building", label: "Building" },
-  { value: "done", label: "Done" },
-  { value: "parked", label: "Parked" },
+const SORTS: { value: SortKey; label: string }[] = [
+  { value: "newest", label: "Newest" },
+  { value: "priority", label: "Priority" },
+  { value: "effort", label: "Least effort" },
+  { value: "quickwins", label: "Quick wins first" },
 ];
-
-const PRIORITIES = [
-  { value: "none", label: "No priority" },
-  { value: "low", label: "Low" },
-  { value: "medium", label: "Medium" },
-  { value: "high", label: "High" },
-];
-
-const STATUS_STYLES: Record<string, string> = {
-  new: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
-  considering: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
-  building: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
-  done: "bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300",
-  parked: "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400",
-};
-
-const PRIORITY_STYLES: Record<string, string> = {
-  high: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
-  medium: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
-  low: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
-};
-
-const COMPLEXITY_STYLES: Record<string, string> = {
-  S: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
-  M: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
-  L: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
-  XL: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
-};
 
 export function IdeasBoard() {
   const [ideas, setIdeas] = useState<Idea[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [estimating, setEstimating] = useState<Set<string>>(new Set());
   const [form, setForm] = useState({ title: "", notes: "", priority: "none" });
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState({ title: "", notes: "" });
-  const [savingEdit, setSavingEdit] = useState(false);
+
+  // Filter / sort / search state
+  const [search, setSearch] = useState("");
+  const [fStatus, setFStatus] = useState("all");
+  const [fPriority, setFPriority] = useState("all");
+  const [fComplexity, setFComplexity] = useState("all");
+  const [quickOnly, setQuickOnly] = useState(false);
+  const [sort, setSort] = useState<SortKey>("newest");
+  const [showMatrix, setShowMatrix] = useState(false);
 
   const fetchIdeas = useCallback(async () => {
     try {
@@ -82,30 +71,6 @@ export function IdeasBoard() {
   useEffect(() => {
     fetchIdeas();
   }, [fetchIdeas]);
-
-  const markEstimating = (id: string, on: boolean) =>
-    setEstimating((prev) => {
-      const next = new Set(prev);
-      if (on) next.add(id);
-      else next.delete(id);
-      return next;
-    });
-
-  // Run the AI estimate for an idea and merge the result in place.
-  const runEstimate = useCallback(async (id: string) => {
-    markEstimating(id, true);
-    try {
-      const res = await fetch(`/api/ideas/${id}/estimate`, { method: "POST" });
-      if (res.ok) {
-        const updated: Idea = await res.json();
-        setIdeas((prev) => prev.map((i) => (i.id === id ? updated : i)));
-      }
-    } catch (err) {
-      console.error("Estimate failed:", err);
-    } finally {
-      markEstimating(id, false);
-    }
-  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -126,8 +91,11 @@ export function IdeasBoard() {
         setForm({ title: "", notes: "", priority: "none" });
         setShowForm(false);
         setIdeas((prev) => [created, ...prev]);
-        // Auto-estimate in the background — the card fills in when it returns.
-        runEstimate(created.id);
+        // Kick off the AI estimate in the background; it fills in on next load
+        // or when you open the idea.
+        fetch(`/api/ideas/${created.id}/estimate`, { method: "POST" }).catch(
+          () => {}
+        );
       }
     } catch (err) {
       console.error("Failed to save idea:", err);
@@ -136,67 +104,91 @@ export function IdeasBoard() {
     }
   };
 
-  const patchIdea = async (id: string, patch: Partial<Idea>) => {
-    setIdeas((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i)));
+  const patchStatus = async (id: string, status: string) => {
+    setIdeas((prev) => prev.map((i) => (i.id === id ? { ...i, status } : i)));
     try {
       await fetch(`/api/ideas/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patch),
+        body: JSON.stringify({ status }),
       });
     } catch (err) {
       console.error("Failed to update idea:", err);
     }
   };
 
-  const startEdit = (idea: Idea) => {
-    setEditingId(idea.id);
-    setEditForm({ title: idea.title, notes: idea.notes || "" });
-  };
-
-  const cancelEdit = () => {
-    setEditingId(null);
-    setEditForm({ title: "", notes: "" });
-  };
-
-  const saveEdit = async (idea: Idea) => {
-    const title = editForm.title.trim();
-    if (!title) return;
-    const notes = editForm.notes.trim() || null;
-    const changed = title !== idea.title || notes !== (idea.notes || null);
-    setSavingEdit(true);
-    setIdeas((prev) =>
-      prev.map((i) => (i.id === idea.id ? { ...i, title, notes } : i))
-    );
-    try {
-      await fetch(`/api/ideas/${idea.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, notes }),
-      });
-      setEditingId(null);
-      // The idea text drives the AI estimate, so refresh it when it changed.
-      if (changed) runEstimate(idea.id);
-    } catch (err) {
-      console.error("Failed to save idea:", err);
-    } finally {
-      setSavingEdit(false);
+  // ---- derived: stats ----
+  const stats = useMemo(() => {
+    const byStatus: Record<string, number> = {};
+    let quick = 0;
+    for (const i of ideas) {
+      byStatus[i.status] = (byStatus[i.status] || 0) + 1;
+      if (isQuickWin(i)) quick++;
     }
-  };
+    const open = ideas.filter(
+      (i) => i.status !== "done" && i.status !== "parked"
+    ).length;
+    return { total: ideas.length, quick, open, byStatus };
+  }, [ideas]);
 
-  const deleteIdea = async (id: string) => {
-    if (!confirm("Delete this idea?")) return;
-    setIdeas((prev) => prev.filter((i) => i.id !== id));
-    try {
-      await fetch(`/api/ideas/${id}`, { method: "DELETE" });
-    } catch (err) {
-      console.error("Failed to delete idea:", err);
-    }
+  // ---- derived: filtered + sorted list ----
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    let list = ideas.filter((i) => {
+      if (fStatus !== "all" && i.status !== fStatus) return false;
+      if (fPriority !== "all" && i.priority !== fPriority) return false;
+      if (fComplexity !== "all" && i.complexity !== fComplexity) return false;
+      if (quickOnly && !isQuickWin(i)) return false;
+      if (q) {
+        const hay = `${i.title} ${i.notes || ""}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+
+    list = [...list].sort((a, b) => {
+      switch (sort) {
+        case "priority":
+          return (
+            (PRIORITY_WEIGHT[b.priority] ?? 0) -
+              (PRIORITY_WEIGHT[a.priority] ?? 0) ||
+            +new Date(b.createdAt) - +new Date(a.createdAt)
+          );
+        case "effort": {
+          const ea = a.complexity ? EFFORT_WEIGHT[a.complexity] : 99;
+          const eb = b.complexity ? EFFORT_WEIGHT[b.complexity] : 99;
+          return ea - eb || +new Date(b.createdAt) - +new Date(a.createdAt);
+        }
+        case "quickwins":
+          return (
+            valueEffortScore(b) - valueEffortScore(a) ||
+            +new Date(b.createdAt) - +new Date(a.createdAt)
+          );
+        default:
+          return +new Date(b.createdAt) - +new Date(a.createdAt);
+      }
+    });
+    return list;
+  }, [ideas, search, fStatus, fPriority, fComplexity, quickOnly, sort]);
+
+  const filtersActive =
+    search.trim() !== "" ||
+    fStatus !== "all" ||
+    fPriority !== "all" ||
+    fComplexity !== "all" ||
+    quickOnly;
+
+  const resetFilters = () => {
+    setSearch("");
+    setFStatus("all");
+    setFPriority("all");
+    setFComplexity("all");
+    setQuickOnly(false);
   };
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Ideas</h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1">
@@ -270,8 +262,8 @@ export function IdeasBoard() {
                 {submitting ? "Saving..." : "Save idea"}
               </Button>
               <p className="text-xs text-gray-400 dark:text-gray-500">
-                After you save, the AI estimates complexity and implementation
-                scope in the background.
+                After you save, the AI estimates complexity, value and
+                implementation scope in the background.
               </p>
             </form>
           </CardContent>
@@ -295,200 +287,311 @@ export function IdeasBoard() {
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-3">
-          {ideas.map((idea) => {
-            const isEstimating = estimating.has(idea.id);
-            const isEditing = editingId === idea.id;
-            return (
-              <Card key={idea.id}>
-                <CardContent className="p-4">
-                  {isEditing ? (
-                    <form
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        saveEdit(idea);
-                      }}
-                      className="space-y-3"
-                    >
-                      <div>
-                        <Label htmlFor={`edit-title-${idea.id}`}>Idea</Label>
-                        <Input
-                          id={`edit-title-${idea.id}`}
-                          value={editForm.title}
-                          onChange={(e) =>
-                            setEditForm({ ...editForm, title: e.target.value })
-                          }
-                          required
-                          autoFocus
-                          className="mt-1.5"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor={`edit-notes-${idea.id}`}>Notes</Label>
-                        <Textarea
-                          id={`edit-notes-${idea.id}`}
-                          value={editForm.notes}
-                          onChange={(e) =>
-                            setEditForm({ ...editForm, notes: e.target.value })
-                          }
-                          placeholder="Any detail, context, or why it matters..."
-                          className="mt-1.5"
-                        />
-                      </div>
-                      <div className="flex gap-2">
-                        <Button type="submit" size="sm" disabled={savingEdit}>
-                          <Check className="w-4 h-4 mr-1" />
-                          {savingEdit ? "Saving..." : "Save changes"}
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={cancelEdit}
-                        >
-                          Cancel
-                        </Button>
-                      </div>
-                      <p className="text-xs text-gray-400 dark:text-gray-500">
-                        Editing the idea re-runs the AI estimate.
-                      </p>
-                    </form>
-                  ) : (
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="font-semibold text-gray-900 dark:text-white">
-                          {idea.title}
-                        </h3>
-                        {idea.priority !== "none" && (
-                          <span
-                            className={`text-xs px-2 py-0.5 rounded-full ${
-                              PRIORITY_STYLES[idea.priority]
-                            }`}
-                          >
-                            {idea.priority} priority
-                          </span>
-                        )}
-                        {idea.complexity && (
-                          <span
-                            className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                              COMPLEXITY_STYLES[idea.complexity] || COMPLEXITY_STYLES.M
-                            }`}
-                            title="AI complexity estimate"
-                          >
-                            {idea.complexity}
-                          </span>
-                        )}
-                      </div>
-                      {idea.notes && (
-                        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 whitespace-pre-wrap">
-                          {idea.notes}
-                        </p>
-                      )}
+        <>
+          {/* Summary stat chips */}
+          <div className="flex flex-wrap items-center gap-2">
+            <StatChip label="Total" value={stats.total} />
+            <StatChip label="Open" value={stats.open} />
+            <button
+              type="button"
+              onClick={() => setQuickOnly((v) => !v)}
+              className={`inline-flex items-center gap-1.5 text-sm px-3 py-1 rounded-full border transition ${
+                quickOnly
+                  ? "bg-amber-100 border-amber-300 text-amber-800 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-300"
+                  : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+              }`}
+              title="A quick win = high value for low effort (S/M)"
+            >
+              <Star className="w-3.5 h-3.5" />
+              {stats.quick} quick win{stats.quick === 1 ? "" : "s"}
+            </button>
+            {STATUSES.filter((s) => stats.byStatus[s.value]).map((s) => (
+              <span
+                key={s.value}
+                className={`text-xs px-2.5 py-1 rounded-full ${STATUS_STYLES[s.value]}`}
+              >
+                {stats.byStatus[s.value]} {s.label.toLowerCase()}
+              </span>
+            ))}
+            <button
+              type="button"
+              onClick={() => setShowMatrix((v) => !v)}
+              className="ml-auto inline-flex items-center gap-1.5 text-sm px-3 py-1 rounded-full border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+              {showMatrix ? "Hide" : "Value / effort"}
+            </button>
+          </div>
 
-                      {/* AI estimate */}
-                      {isEstimating ? (
-                        <p className="flex items-center gap-2 text-sm text-emerald-600 dark:text-emerald-400 mt-2">
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          Estimating complexity &amp; scope…
-                        </p>
-                      ) : idea.scope ? (
-                        <div className="mt-2 p-3 rounded-lg bg-gray-50 dark:bg-gray-700/40 text-sm">
-                          <div className="flex items-center gap-1.5 text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-                            <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                            Implementation scope
-                          </div>
-                          <p className="text-gray-600 dark:text-gray-300">{idea.scope}</p>
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => runEstimate(idea.id)}
-                          className="mt-2 inline-flex items-center gap-1.5 text-xs text-emerald-600 hover:underline"
-                        >
-                          <Sparkles className="w-3.5 h-3.5" /> Estimate the build
-                        </button>
-                      )}
+          {showMatrix && <ValueEffortMatrix ideas={ideas} />}
 
-                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
-                        {new Date(idea.createdAt).toLocaleDateString()}
-                        {idea.scope && !isEstimating && (
-                          <>
-                            {" · "}
-                            <button
-                              type="button"
-                              onClick={() => runEstimate(idea.id)}
-                              className="hover:underline"
-                            >
-                              re-estimate
-                            </button>
-                          </>
-                        )}
-                      </p>
-                    </div>
+          {/* Filter / search / sort bar */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative flex-1 min-w-[180px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search ideas…"
+                className="pl-9"
+              />
+            </div>
+            <Select
+              value={fStatus}
+              onChange={(e) => setFStatus(e.target.value)}
+              className="w-auto text-sm"
+              aria-label="Filter by status"
+            >
+              <option value="all">All statuses</option>
+              {STATUSES.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </Select>
+            <Select
+              value={fPriority}
+              onChange={(e) => setFPriority(e.target.value)}
+              className="w-auto text-sm"
+              aria-label="Filter by priority"
+            >
+              <option value="all">Any priority</option>
+              {PRIORITIES.map((p) => (
+                <option key={p.value} value={p.value}>
+                  {p.label}
+                </option>
+              ))}
+            </Select>
+            <Select
+              value={fComplexity}
+              onChange={(e) => setFComplexity(e.target.value)}
+              className="w-auto text-sm"
+              aria-label="Filter by effort"
+            >
+              <option value="all">Any effort</option>
+              <option value="S">S</option>
+              <option value="M">M</option>
+              <option value="L">L</option>
+              <option value="XL">XL</option>
+            </Select>
+            <Select
+              value={sort}
+              onChange={(e) => setSort(e.target.value as SortKey)}
+              className="w-auto text-sm"
+              aria-label="Sort"
+            >
+              {SORTS.map((s) => (
+                <option key={s.value} value={s.value}>
+                  Sort: {s.label}
+                </option>
+              ))}
+            </Select>
+            {filtersActive && (
+              <Button variant="ghost" size="sm" onClick={resetFilters}>
+                Clear
+              </Button>
+            )}
+          </div>
 
-                    <div className="flex flex-col items-end gap-2 shrink-0">
-                      <span
-                        className={`text-xs px-2 py-0.5 rounded-full ${
-                          STATUS_STYLES[idea.status] || STATUS_STYLES.new
-                        }`}
-                      >
-                        {STATUSES.find((s) => s.value === idea.status)?.label ||
-                          idea.status}
-                      </span>
-                      <Select
-                        value={idea.priority}
-                        onChange={(e) => patchIdea(idea.id, { priority: e.target.value })}
-                        className="w-36 text-sm"
-                        aria-label="Priority"
-                      >
-                        {PRIORITIES.map((p) => (
-                          <option key={p.value} value={p.value}>
-                            {p.label}
-                          </option>
-                        ))}
-                      </Select>
-                      <Select
-                        value={idea.status}
-                        onChange={(e) => patchIdea(idea.id, { status: e.target.value })}
-                        className="w-36 text-sm"
-                        aria-label="Status"
-                      >
-                        {STATUSES.map((s) => (
-                          <option key={s.value} value={s.value}>
-                            {s.label}
-                          </option>
-                        ))}
-                      </Select>
-                      <div className="flex items-center gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => startEdit(idea)}
-                          className="text-gray-400 hover:text-emerald-600"
-                          aria-label="Edit idea"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => deleteIdea(idea.id)}
-                          className="text-gray-400 hover:text-red-500"
-                          aria-label="Delete idea"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                  )}
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
+          {/* List */}
+          {visible.length === 0 ? (
+            <Card>
+              <CardContent className="py-10 text-center text-gray-500 dark:text-gray-400">
+                No ideas match these filters.
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-2">
+              {visible.map((idea) => (
+                <IdeaRow key={idea.id} idea={idea} onStatus={patchStatus} />
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
+  );
+}
+
+function StatChip({ label, value }: { label: string; value: number }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 text-sm px-3 py-1 rounded-full border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300">
+      <span className="font-semibold text-gray-900 dark:text-white">{value}</span>
+      {label}
+    </span>
+  );
+}
+
+function IdeaRow({
+  idea,
+  onStatus,
+}: {
+  idea: Idea;
+  onStatus: (id: string, status: string) => void;
+}) {
+  const quick = isQuickWin(idea);
+  const estimating = !idea.aiEstimatedAt && !idea.scope;
+  return (
+    <Card className="hover:border-emerald-300 dark:hover:border-emerald-700 transition-colors">
+      <CardContent className="p-3 flex items-center gap-3">
+        <Link href={`/ideas/${idea.id}`} className="min-w-0 flex-1 group">
+          <div className="flex items-center gap-2 flex-wrap">
+            {quick && (
+              <span
+                className="inline-flex items-center gap-0.5 text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
+                title="Quick win — high value, low effort"
+              >
+                <Star className="w-3 h-3" /> Quick win
+              </span>
+            )}
+            <h3 className="font-semibold text-gray-900 dark:text-white truncate group-hover:text-emerald-600 dark:group-hover:text-emerald-400">
+              {idea.title}
+            </h3>
+            {idea.priority !== "none" && (
+              <span
+                className={`text-xs px-2 py-0.5 rounded-full ${PRIORITY_STYLES[idea.priority]}`}
+              >
+                {idea.priority}
+              </span>
+            )}
+            {idea.impact && (
+              <span
+                className={`text-xs px-2 py-0.5 rounded-full ${IMPACT_STYLES[idea.impact]}`}
+                title="AI value estimate"
+              >
+                {idea.impact} value
+              </span>
+            )}
+            {idea.complexity && (
+              <span
+                className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                  COMPLEXITY_STYLES[idea.complexity] || COMPLEXITY_STYLES.M
+                }`}
+                title="AI effort estimate"
+              >
+                {idea.complexity}
+              </span>
+            )}
+            {estimating && (
+              <span className="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+                <Loader2 className="w-3 h-3 animate-spin" /> estimating
+              </span>
+            )}
+          </div>
+          {idea.notes && (
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5 truncate">
+              {idea.notes}
+            </p>
+          )}
+        </Link>
+
+        <Select
+          value={idea.status}
+          onChange={(e) => onStatus(idea.id, e.target.value)}
+          className="w-32 text-sm shrink-0"
+          aria-label="Status"
+        >
+          {STATUSES.map((s) => (
+            <option key={s.value} value={s.value}>
+              {s.label}
+            </option>
+          ))}
+        </Select>
+        <Link
+          href={`/ideas/${idea.id}`}
+          className="text-gray-300 hover:text-gray-500 dark:text-gray-600 dark:hover:text-gray-400 shrink-0"
+          aria-label="Open idea"
+        >
+          <ChevronRight className="w-5 h-5" />
+        </Link>
+      </CardContent>
+    </Card>
+  );
+}
+
+// 2x2 value-vs-effort matrix. Only estimated ideas (impact + effort) are placed.
+function ValueEffortMatrix({ ideas }: { ideas: Idea[] }) {
+  const estimated = ideas.filter((i) => i.impact && i.complexity);
+  const highValue = (i: Idea) => i.impact === "high";
+  const lowEffort = (i: Idea) => i.complexity === "S" || i.complexity === "M";
+
+  const cells: {
+    key: string;
+    title: string;
+    hint: string;
+    tone: string;
+    items: Idea[];
+  }[] = [
+    {
+      key: "quick",
+      title: "Quick wins",
+      hint: "High value · low effort",
+      tone: "border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/10",
+      items: estimated.filter((i) => highValue(i) && lowEffort(i)),
+    },
+    {
+      key: "bets",
+      title: "Big bets",
+      hint: "High value · high effort",
+      tone: "border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/10",
+      items: estimated.filter((i) => highValue(i) && !lowEffort(i)),
+    },
+    {
+      key: "fill",
+      title: "Fill-ins",
+      hint: "Lower value · low effort",
+      tone: "border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40",
+      items: estimated.filter((i) => !highValue(i) && lowEffort(i)),
+    },
+    {
+      key: "sink",
+      title: "Time sinks",
+      hint: "Lower value · high effort",
+      tone: "border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40",
+      items: estimated.filter((i) => !highValue(i) && !lowEffort(i)),
+    },
+  ];
+
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {cells.map((c) => (
+            <div key={c.key} className={`rounded-lg border p-3 ${c.tone}`}>
+              <div className="flex items-baseline justify-between">
+                <span className="font-semibold text-gray-900 dark:text-white text-sm flex items-center gap-1">
+                  {c.key === "quick" && <Star className="w-3.5 h-3.5 text-amber-500" />}
+                  {c.title}
+                </span>
+                <span className="text-xs text-gray-400">{c.hint}</span>
+              </div>
+              <div className="mt-2 space-y-1">
+                {c.items.length === 0 ? (
+                  <p className="text-xs text-gray-400">—</p>
+                ) : (
+                  c.items.map((i) => (
+                    <Link
+                      key={i.id}
+                      href={`/ideas/${i.id}`}
+                      className="block text-sm text-gray-700 dark:text-gray-300 hover:text-emerald-600 dark:hover:text-emerald-400 truncate"
+                    >
+                      {i.title}{" "}
+                      <span className="text-xs text-gray-400">({i.complexity})</span>
+                    </Link>
+                  ))
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+        {estimated.length < ideas.length && (
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-3">
+            {ideas.length - estimated.length} idea
+            {ideas.length - estimated.length === 1 ? "" : "s"} not yet estimated —
+            open one to run the estimate.
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }

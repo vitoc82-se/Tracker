@@ -5,6 +5,8 @@ import { isOwner } from "@/lib/owner";
 
 const STATUSES = ["new", "considering", "building", "done", "parked"];
 const PRIORITIES = ["none", "low", "medium", "high"];
+const IMPACTS = ["low", "medium", "high"];
+const COMPLEXITIES = ["S", "M", "L", "XL"];
 
 export async function PATCH(
   request: Request,
@@ -28,11 +30,15 @@ export async function PATCH(
       notes?: string | null;
       status?: string;
       priority?: string;
+      impact?: string;
+      complexity?: string;
     } = {};
     if (typeof body?.title === "string" && body.title.trim()) data.title = body.title.trim();
     if (body?.notes !== undefined) data.notes = body.notes ? String(body.notes) : null;
     if (STATUSES.includes(body?.status)) data.status = body.status;
     if (PRIORITIES.includes(body?.priority)) data.priority = body.priority;
+    if (IMPACTS.includes(body?.impact)) data.impact = body.impact;
+    if (COMPLEXITIES.includes(body?.complexity)) data.complexity = body.complexity;
 
     const idea = await db.idea.update({ where: { id: params.id }, data });
     return NextResponse.json(idea);
