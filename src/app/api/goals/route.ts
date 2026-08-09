@@ -77,16 +77,30 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
-    const goal = await db.goal.create({
-      data: {
-        userId,
-        goalType: body.goalType,
-        target: body.target,
-        unit: body.unit,
-        period: body.period || "daily",
-        source: body.source === "auto" ? "auto" : "manual",
-      },
-    });
+    const period = body.period || "daily";
+    const isAuto = body.source === "auto";
+
+    const data = {
+      userId,
+      goalType: body.goalType,
+      target: body.target,
+      unit: body.unit,
+      period,
+      source: isAuto ? "auto" : "manual",
+    };
+
+    // Auto goals (from onboarding / "calculate from profile") are idempotent
+    // per type+period: replace any existing auto goal so a repeated onboarding
+    // pass or a double-submit can't pile up duplicates. Manual goals stay
+    // insert-only — the user may deliberately want more than one.
+    const goal = isAuto
+      ? await db.$transaction(async (tx) => {
+          await tx.goal.deleteMany({
+            where: { userId, goalType: body.goalType, period, source: "auto" },
+          });
+          return tx.goal.create({ data });
+        })
+      : await db.goal.create({ data });
 
     return NextResponse.json(goal, { status: 201 });
   } catch (error) {
