@@ -92,10 +92,21 @@ export async function POST(request: Request) {
         if (!replace.includes(g.goalType)) continue;
         const cur = existingByType.get(`${g.goalType}:${g.period}`);
         if (!cur) continue; // already handled by toCreate
+        // deleteMany (not update) collapses any duplicate rows of this type
+        // into a single fresh auto goal.
+        await tx.goal.deleteMany({
+          where: { userId, goalType: g.goalType, period: g.period },
+        });
         out.push(
-          await tx.goal.update({
-            where: { id: cur.id },
-            data: { target: g.target, unit: g.unit, source: "auto" },
+          await tx.goal.create({
+            data: {
+              userId,
+              goalType: g.goalType,
+              target: g.target,
+              unit: g.unit,
+              period: g.period,
+              source: "auto",
+            },
           })
         );
       }

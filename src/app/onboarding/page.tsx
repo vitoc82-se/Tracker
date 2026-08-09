@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { UtensilsCrossed, Target, ChevronRight, ChevronLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,7 +17,6 @@ const GOAL_SUGGESTIONS = [
 ];
 
 export default function OnboardingPage() {
-  const router = useRouter();
   const [step, setStep] = useState(1);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -99,10 +97,14 @@ export default function OnboardingPage() {
         });
       }
 
-      router.push("/dashboard");
+      // Full navigation (not router.push): the app layout is a server
+      // component that redirects incomplete profiles to /onboarding. Next's
+      // client router can serve that cached redirect for /dashboard and bounce
+      // the user back into onboarding. A hard navigation re-renders the layout
+      // against the now-complete profile.
+      window.location.href = "/dashboard";
     } catch {
       setError("Failed to save goals. Please try again.");
-    } finally {
       setSaving(false);
     }
   };
