@@ -1,11 +1,27 @@
+import { db } from "./db";
+
 // Access control for owner-only surfaces (e.g. the Ideas backlog).
 //
-// Set OWNER_EMAIL in the environment (Vercel → Project → Settings → Environment
-// Variables) to lock a feature to a single account. If OWNER_EMAIL is unset,
-// any signed-in user may use the feature with their own private, per-account
-// data (nothing leaks between accounts because every query is userId-scoped).
-export function isOwnerEmail(email: string | null | undefined): boolean {
+// Priority:
+//   1. If OWNER_EMAIL is set (Vercel → Settings → Environment Variables),
+//      only that account is the owner.
+//   2. Otherwise the owner is the FIRST-registered account (the app creator).
+//      This locks owner-only surfaces to you out of the box, with no config —
+//      other signed-in users are denied.
+export async function isOwner(
+  userId: string | null | undefined,
+  email: string | null | undefined
+): Promise<boolean> {
+  if (!userId) return false;
+
   const owner = process.env.OWNER_EMAIL?.trim().toLowerCase();
-  if (!owner) return true; // not locked down — allow any signed-in user
-  return !!email && email.trim().toLowerCase() === owner;
+  if (owner) {
+    return !!email && email.trim().toLowerCase() === owner;
+  }
+
+  const first = await db.user.findFirst({
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
+  return !!first && first.id === userId;
 }

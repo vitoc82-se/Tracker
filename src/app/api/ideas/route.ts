@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/session";
-import { isOwnerEmail } from "@/lib/owner";
+import { isOwner } from "@/lib/owner";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +10,7 @@ const STATUSES = ["new", "considering", "building", "done", "parked"];
 export async function GET() {
   const session = await getSession();
   const userId = session?.user?.id;
-  if (!userId || !isOwnerEmail(session?.user?.email)) {
+  if (!userId || !(await isOwner(userId, session?.user?.email))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -24,7 +24,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const session = await getSession();
   const userId = session?.user?.id;
-  if (!userId || !isOwnerEmail(session?.user?.email)) {
+  if (!userId || !(await isOwner(userId, session?.user?.email))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
