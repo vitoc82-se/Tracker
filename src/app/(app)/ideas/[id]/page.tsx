@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { isOwner } from "@/lib/owner";
 import { db } from "@/lib/db";
 import { IdeaDetail } from "../ideas-detail";
-import type { Idea } from "../ideas-shared";
+import type { Idea, IdeaRef } from "../ideas-shared";
 
 export const dynamic = "force-dynamic";
 
@@ -57,12 +57,39 @@ export default async function IdeaDetailPage({
     notes: record.notes,
     status: record.status,
     priority: record.priority,
+    tags: record.tags,
+    blockedBy: record.blockedBy,
     complexity: record.complexity,
     impact: record.impact,
     scope: record.scope,
     aiEstimatedAt: record.aiEstimatedAt ? record.aiEstimatedAt.toISOString() : null,
+    plan: record.plan,
+    plannedAt: record.plannedAt ? record.plannedAt.toISOString() : null,
     createdAt: record.createdAt.toISOString(),
   };
 
-  return <IdeaDetail initial={idea} />;
+  // Other ideas — for the dependency picker and to resolve "blocks" links.
+  const others = await db.idea.findMany({
+    where: { userId, id: { not: record.id } },
+    select: { id: true, title: true, status: true },
+    orderBy: { createdAt: "desc" },
+  });
+  const allIdeas: IdeaRef[] = others.map((o) => ({
+    id: o.id,
+    title: o.title,
+    status: o.status,
+  }));
+
+  // Ideas that this one blocks (reverse of blockedBy).
+  const blocks = await db.idea.findMany({
+    where: { userId, blockedBy: { has: record.id } },
+    select: { id: true, title: true, status: true },
+  });
+  const blocksRefs: IdeaRef[] = blocks.map((o) => ({
+    id: o.id,
+    title: o.title,
+    status: o.status,
+  }));
+
+  return <IdeaDetail initial={idea} allIdeas={allIdeas} blocks={blocksRefs} />;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -12,6 +12,10 @@ import {
   Sparkles,
   Loader2,
   Star,
+  Tag as TagIcon,
+  Link2,
+  FileText,
+  Copy,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -21,6 +25,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Idea,
+  IdeaRef,
   STATUSES,
   PRIORITIES,
   IMPACTS,
@@ -29,10 +34,21 @@ import {
   PRIORITY_STYLES,
   IMPACT_STYLES,
   COMPLEXITY_STYLES,
+  tagStyle,
+  parseTagInput,
+  normalizeTags,
   isQuickWin,
 } from "./ideas-shared";
 
-export function IdeaDetail({ initial }: { initial: Idea }) {
+export function IdeaDetail({
+  initial,
+  allIdeas,
+  blocks,
+}: {
+  initial: Idea;
+  allIdeas: IdeaRef[];
+  blocks: IdeaRef[];
+}) {
   const router = useRouter();
   const [idea, setIdea] = useState<Idea>(initial);
   const [editing, setEditing] = useState(false);
@@ -42,20 +58,32 @@ export function IdeaDetail({ initial }: { initial: Idea }) {
   });
   const [saving, setSaving] = useState(false);
   const [estimating, setEstimating] = useState(false);
+  const [planning, setPlanning] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [tagInput, setTagInput] = useState("");
+  const [copied, setCopied] = useState(false);
 
-  const patch = useCallback(async (data: Partial<Idea>) => {
-    setIdea((prev) => ({ ...prev, ...data }));
-    try {
-      await fetch(`/api/ideas/${initial.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-    } catch (err) {
-      console.error("Failed to update idea:", err);
-    }
-  }, [initial.id]);
+  const idTitle = useMemo(() => {
+    const m = new Map<string, IdeaRef>();
+    for (const r of allIdeas) m.set(r.id, r);
+    return m;
+  }, [allIdeas]);
+
+  const patch = useCallback(
+    async (data: Partial<Idea>) => {
+      setIdea((prev) => ({ ...prev, ...data }));
+      try {
+        await fetch(`/api/ideas/${initial.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        });
+      } catch (err) {
+        console.error("Failed to update idea:", err);
+      }
+    },
+    [initial.id]
+  );
 
   const runEstimate = useCallback(async () => {
     setEstimating(true);
@@ -63,14 +91,26 @@ export function IdeaDetail({ initial }: { initial: Idea }) {
       const res = await fetch(`/api/ideas/${initial.id}/estimate`, {
         method: "POST",
       });
-      if (res.ok) {
-        const updated: Idea = await res.json();
-        setIdea(updated);
-      }
+      if (res.ok) setIdea(await res.json());
     } catch (err) {
       console.error("Estimate failed:", err);
     } finally {
       setEstimating(false);
+    }
+  }, [initial.id]);
+
+  const runPlan = useCallback(async () => {
+    setPlanning(true);
+    try {
+      const res = await fetch(`/api/ideas/${initial.id}/plan`, {
+        method: "POST",
+      });
+      if (res.ok) setIdea(await res.json());
+      else console.error("Plan failed:", await res.text());
+    } catch (err) {
+      console.error("Plan failed:", err);
+    } finally {
+      setPlanning(false);
     }
   }, [initial.id]);
 
@@ -93,7 +133,6 @@ export function IdeaDetail({ initial }: { initial: Idea }) {
         body: JSON.stringify({ title, notes }),
       });
       setEditing(false);
-      // The idea text drives the AI estimate, so refresh it when it changed.
       if (changed) runEstimate();
     } catch (err) {
       console.error("Failed to save idea:", err);
@@ -115,7 +154,39 @@ export function IdeaDetail({ initial }: { initial: Idea }) {
     }
   };
 
+  // ---- tags ----
+  const commitTagInput = () => {
+    const added = parseTagInput(tagInput);
+    if (added.length) {
+      const next = normalizeTags([...idea.tags, ...added]);
+      patch({ tags: next });
+    }
+    setTagInput("");
+  };
+  const removeTag = (t: string) =>
+    patch({ tags: idea.tags.filter((x) => x !== t) });
+
+  // ---- dependencies ----
+  const addDep = (id: string) => {
+    if (!id || idea.blockedBy.includes(id)) return;
+    patch({ blockedBy: [...idea.blockedBy, id] });
+  };
+  const removeDep = (id: string) =>
+    patch({ blockedBy: idea.blockedBy.filter((x) => x !== id) });
+
+  const copyPlan = async () => {
+    if (!idea.plan) return;
+    try {
+      await navigator.clipboard.writeText(idea.plan);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard may be blocked; ignore */
+    }
+  };
+
   const quick = isQuickWin(idea);
+  const depOptions = allIdeas.filter((r) => !idea.blockedBy.includes(r.id));
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -128,7 +199,6 @@ export function IdeaDetail({ initial }: { initial: Idea }) {
 
       <Card>
         <CardContent className="p-5 space-y-5">
-          {/* Header: title + edit */}
           {editing ? (
             <form
               onSubmit={(e) => {
@@ -181,83 +251,121 @@ export function IdeaDetail({ initial }: { initial: Idea }) {
               </p>
             </form>
           ) : (
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 flex-wrap mb-2">
-                  {quick && (
+            <>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap mb-2">
+                    {quick && (
+                      <span
+                        className="inline-flex items-center gap-0.5 text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
+                        title="Quick win — high value, low effort"
+                      >
+                        <Star className="w-3 h-3" /> Quick win
+                      </span>
+                    )}
                     <span
-                      className="inline-flex items-center gap-0.5 text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
-                      title="Quick win — high value, low effort"
-                    >
-                      <Star className="w-3 h-3" /> Quick win
-                    </span>
-                  )}
-                  <span
-                    className={`text-xs px-2 py-0.5 rounded-full ${
-                      STATUS_STYLES[idea.status] || STATUS_STYLES.new
-                    }`}
-                  >
-                    {STATUSES.find((s) => s.value === idea.status)?.label ||
-                      idea.status}
-                  </span>
-                  {idea.priority !== "none" && (
-                    <span
-                      className={`text-xs px-2 py-0.5 rounded-full ${PRIORITY_STYLES[idea.priority]}`}
-                    >
-                      {idea.priority} priority
-                    </span>
-                  )}
-                  {idea.impact && (
-                    <span
-                      className={`text-xs px-2 py-0.5 rounded-full ${IMPACT_STYLES[idea.impact]}`}
-                    >
-                      {idea.impact} value
-                    </span>
-                  )}
-                  {idea.complexity && (
-                    <span
-                      className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                        COMPLEXITY_STYLES[idea.complexity] || COMPLEXITY_STYLES.M
+                      className={`text-xs px-2 py-0.5 rounded-full ${
+                        STATUS_STYLES[idea.status] || STATUS_STYLES.new
                       }`}
                     >
-                      {idea.complexity} effort
+                      {STATUSES.find((s) => s.value === idea.status)?.label ||
+                        idea.status}
                     </span>
-                  )}
+                    {idea.priority !== "none" && (
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded-full ${PRIORITY_STYLES[idea.priority]}`}
+                      >
+                        {idea.priority} priority
+                      </span>
+                    )}
+                    {idea.impact && (
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded-full ${IMPACT_STYLES[idea.impact]}`}
+                      >
+                        {idea.impact} value
+                      </span>
+                    )}
+                    {idea.complexity && (
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                          COMPLEXITY_STYLES[idea.complexity] || COMPLEXITY_STYLES.M
+                        }`}
+                      >
+                        {idea.complexity} effort
+                      </span>
+                    )}
+                  </div>
+                  <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+                    {idea.title}
+                  </h1>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                    Added {new Date(idea.createdAt).toLocaleDateString()}
+                  </p>
                 </div>
-                <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-                  {idea.title}
-                </h1>
-                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                  Added {new Date(idea.createdAt).toLocaleDateString()}
-                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={startEdit}
+                  className="shrink-0"
+                >
+                  <Pencil className="w-4 h-4 mr-1" /> Edit
+                </Button>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={startEdit}
-                className="shrink-0"
-              >
-                <Pencil className="w-4 h-4 mr-1" /> Edit
-              </Button>
-            </div>
-          )}
 
-          {/* Notes */}
-          {!editing && (
-            <div>
-              <h2 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">
-                Notes
-              </h2>
-              {idea.notes ? (
-                <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
-                  {idea.notes}
-                </p>
-              ) : (
-                <p className="text-gray-400 dark:text-gray-500 italic">
-                  No notes yet.
-                </p>
-              )}
-            </div>
+              {/* Notes */}
+              <div>
+                <h2 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">
+                  Notes
+                </h2>
+                {idea.notes ? (
+                  <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
+                    {idea.notes}
+                  </p>
+                ) : (
+                  <p className="text-gray-400 dark:text-gray-500 italic">
+                    No notes yet.
+                  </p>
+                )}
+              </div>
+
+              {/* Tags */}
+              <div>
+                <h2 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                  <TagIcon className="w-3.5 h-3.5" /> Tags
+                </h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  {idea.tags.map((t) => (
+                    <span
+                      key={t}
+                      className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full ${tagStyle(t)}`}
+                    >
+                      {t}
+                      <button
+                        type="button"
+                        onClick={() => removeTag(t)}
+                        className="hover:opacity-70"
+                        aria-label={`Remove ${t}`}
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  ))}
+                  <input
+                    value={tagInput}
+                    onChange={(e) => setTagInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === ",") {
+                        e.preventDefault();
+                        commitTagInput();
+                      }
+                    }}
+                    onBlur={commitTagInput}
+                    placeholder={idea.tags.length ? "Add tag…" : "e.g. ai, ios, growth"}
+                    className="text-sm bg-transparent border-b border-dashed border-gray-300 dark:border-gray-600 focus:outline-none focus:border-emerald-500 min-w-[100px] py-0.5 text-gray-700 dark:text-gray-200"
+                  />
+                </div>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
@@ -331,6 +439,86 @@ export function IdeaDetail({ initial }: { initial: Idea }) {
         </CardContent>
       </Card>
 
+      {/* Dependencies */}
+      <Card>
+        <CardContent className="p-5">
+          <h2 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3 flex items-center gap-1.5">
+            <Link2 className="w-3.5 h-3.5" /> Dependencies
+          </h2>
+
+          <div className="space-y-4">
+            <div>
+              <Label className="text-xs">Blocked by (ship these first)</Label>
+              <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                {idea.blockedBy.length === 0 && (
+                  <span className="text-sm text-gray-400 dark:text-gray-500">
+                    Nothing — this can start any time.
+                  </span>
+                )}
+                {idea.blockedBy.map((id) => {
+                  const ref = idTitle.get(id);
+                  const done = ref?.status === "done";
+                  return (
+                    <span
+                      key={id}
+                      className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full ${
+                        done
+                          ? "bg-gray-100 text-gray-400 line-through dark:bg-gray-800 dark:text-gray-500"
+                          : "bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300"
+                      }`}
+                    >
+                      <Link href={`/ideas/${id}`} className="hover:underline">
+                        {ref?.title || "(deleted)"}
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => removeDep(id)}
+                        className="hover:opacity-70"
+                        aria-label="Remove dependency"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  );
+                })}
+              </div>
+              {depOptions.length > 0 && (
+                <Select
+                  value=""
+                  onChange={(e) => addDep(e.target.value)}
+                  className="mt-2 w-full sm:w-72 text-sm"
+                  aria-label="Add dependency"
+                >
+                  <option value="">+ Add a blocker…</option>
+                  {depOptions.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.title}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </div>
+
+            {blocks.length > 0 && (
+              <div>
+                <Label className="text-xs">Blocks (waiting on this)</Label>
+                <div className="mt-1.5 flex flex-wrap gap-2">
+                  {blocks.map((r) => (
+                    <Link
+                      key={r.id}
+                      href={`/ideas/${r.id}`}
+                      className="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-600 hover:text-emerald-600 dark:bg-gray-800 dark:text-gray-300"
+                    >
+                      {r.title}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Implementation scope */}
       <Card>
         <CardContent className="p-5">
@@ -375,6 +563,63 @@ export function IdeaDetail({ initial }: { initial: Idea }) {
             <p className="text-sm text-gray-400 dark:text-gray-500">
               No estimate yet. Run one to get complexity, value and a build
               breakdown.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Promote to plan */}
+      <Card>
+        <CardContent className="p-5">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-sm font-medium text-gray-900 dark:text-white flex items-center gap-1.5">
+              <FileText className="w-4 h-4 text-emerald-600" />
+              Implementation plan
+            </h2>
+            <div className="flex items-center gap-1">
+              {idea.plan && (
+                <Button variant="ghost" size="sm" onClick={copyPlan}>
+                  <Copy className="w-4 h-4 mr-1" />
+                  {copied ? "Copied" : "Copy"}
+                </Button>
+              )}
+              <Button
+                variant={idea.plan ? "ghost" : "default"}
+                size="sm"
+                onClick={runPlan}
+                disabled={planning}
+              >
+                {planning ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-1 animate-spin" /> Writing…
+                  </>
+                ) : idea.plan ? (
+                  "Regenerate"
+                ) : (
+                  "Promote to plan"
+                )}
+              </Button>
+            </div>
+          </div>
+          {planning ? (
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Turning this idea into a concrete build plan…
+            </p>
+          ) : idea.plan ? (
+            <>
+              <pre className="mt-1 p-3 rounded-lg bg-gray-50 dark:bg-gray-800/60 text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap font-sans overflow-x-auto">
+                {idea.plan}
+              </pre>
+              {idea.plannedAt && (
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
+                  Generated {new Date(idea.plannedAt).toLocaleDateString()}
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="text-sm text-gray-400 dark:text-gray-500">
+              Turn this idea (and its scope) into a step-by-step implementation
+              plan you can hand off.
             </p>
           )}
         </CardContent>

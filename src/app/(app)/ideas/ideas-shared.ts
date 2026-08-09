@@ -6,11 +6,22 @@ export interface Idea {
   notes: string | null;
   status: string;
   priority: string;
+  tags: string[];
+  blockedBy: string[];
   complexity: string | null; // effort: S, M, L, XL
   impact: string | null; // value: low, medium, high
   scope: string | null;
   aiEstimatedAt: string | null;
+  plan: string | null;
+  plannedAt: string | null;
   createdAt: string;
+}
+
+// Lightweight reference to another idea (for dependency pickers / links).
+export interface IdeaRef {
+  id: string;
+  title: string;
+  status: string;
 }
 
 export const STATUSES = [
@@ -93,4 +104,46 @@ export function valueEffortScore(idea: Idea): number {
   const effort = idea.complexity ? EFFORT_WEIGHT[idea.complexity] : 0;
   if (!impact || !effort) return -1;
   return impact / effort;
+}
+
+// Normalize a freeform tag list: lowercase, trimmed, de-duped, capped.
+export function normalizeTags(raw: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const t of raw) {
+    const clean = t.trim().toLowerCase().replace(/\s+/g, "-").slice(0, 24);
+    if (clean && !seen.has(clean)) {
+      seen.add(clean);
+      out.push(clean);
+    }
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+
+export function parseTagInput(value: string): string[] {
+  return normalizeTags(value.split(","));
+}
+
+// An idea is "blocked" while any idea it depends on hasn't shipped (done).
+export function blockingIdeas(idea: Idea, byId: Map<string, Idea>): Idea[] {
+  return idea.blockedBy
+    .map((id) => byId.get(id))
+    .filter((d): d is Idea => !!d && d.status !== "done");
+}
+
+// A small, stable palette for tag chips (hashed by tag name).
+const TAG_PALETTE = [
+  "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300",
+  "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300",
+  "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300",
+  "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300",
+  "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
+  "bg-lime-100 text-lime-700 dark:bg-lime-900/30 dark:text-lime-300",
+];
+
+export function tagStyle(tag: string): string {
+  let h = 0;
+  for (let i = 0; i < tag.length; i++) h = (h * 31 + tag.charCodeAt(i)) >>> 0;
+  return TAG_PALETTE[h % TAG_PALETTE.length];
 }

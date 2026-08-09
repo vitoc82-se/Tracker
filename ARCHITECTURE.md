@@ -36,7 +36,7 @@ The living reference for how SnapMeal is built and wired together. Keep this cur
 - **MealItem** — a single detected food: `name, quantity, unit, calories, protein, carbs, fat`. (No fiber at item level; fiber is meal-level only.)
 - **Exercise** — logged activity: `caloriesBurned, duration, ...`.
 - **Goal** — `goalType` (calories | protein | carbs | fat | exercise_minutes | weight), `target, unit, period, source` (`manual` | `auto`). Live progress is computed on read, not stored (the stored `current` field is ignored).
-- **Idea** — the private backlog: `title, notes, status` (new | considering | building | done | parked), `priority` (you set), and AI-filled `complexity` (S/M/L/XL effort), `impact` (low/med/high value), `scope`. See §7.
+- **Idea** — the private backlog: `title, notes, status` (new | considering | building | done | parked), `priority` (you set), `tags[]` (themes), `blockedBy[]` (dependency idea ids), AI-filled `complexity` (S/M/L/XL effort), `impact` (low/med/high value), `scope`, and a `plan` (AI-generated implementation plan). See §7.
 
 ## 4. Routes
 
@@ -54,7 +54,7 @@ The living reference for how SnapMeal is built and wired together. Keep this cur
 - `dashboard` (GET) — aggregates today's intake, burn, macros, chart data, live goal progress, weight plan.
 - `profile` (GET/PUT), `exercises` (GET/POST), `exercises/[id]`, `upload` (POST → Blob).
 - `auth/register` (POST), `auth/[...nextauth]` (NextAuth).
-- `ideas` (GET/POST), `ideas/[id]` (PATCH/DELETE), `ideas/[id]/estimate` (POST) — owner-gated backlog. See §7.
+- `ideas` (GET/POST), `ideas/[id]` (PATCH/DELETE), `ideas/[id]/estimate` (POST), `ideas/[id]/plan` (POST) — owner-gated backlog. See §7.
 
 ## 5. Key flows
 
@@ -84,8 +84,12 @@ The living reference for how SnapMeal is built and wired together. Keep this cur
 ## 7. The Ideas backlog (owner-only)
 
 - **Two views:** `/ideas` is a compact **board** (one row per idea: title + badges + a quick status dropdown, links to the detail page). `/ideas/[id]` is the **detail page** — full notes, the AI implementation scope, inline edit (title/notes), all triage controls (status/priority/value/effort), re-estimate, and delete. The board deliberately does **not** show the scope text; that lives on the detail page.
-- **Board tooling:** summary stat chips (total, open, quick-wins count, per-status counts); a search box; filters for status / priority / effort and a **quick-wins** toggle; sort by newest / priority / least-effort / quick-wins-first; and a collapsible **value-vs-effort matrix** (Quick wins · Big bets · Fill-ins · Time sinks). A **quick win** = high value (`impact`) + low effort (`complexity` S or M).
-- **Auto AI estimate:** on submit, the client fires `POST /api/ideas/[id]/estimate`, which sends the idea + a condensed app context to Claude (Opus 5) and fills in **complexity** (S/M/L/XL effort), **impact** (low/med/high value) and an **implementation-scope** summary. If the user set no priority, the AI's suggested priority is applied. Re-estimate from the detail page reruns it; editing the idea text auto-reruns it. You can manually override value/effort on the detail page.
+- **Two views:** a **List** view (compact rows) and a drag-and-drop **Board** (kanban) view (`ideas-kanban.tsx`) whose columns are the statuses — drop a card in a column to change its status. Toggle between them top-left of the filter bar.
+- **Board tooling:** summary stat chips (total, open, quick-wins count, per-status counts); a search box; filters for status (list view) / priority / effort / **tag** and a **quick-wins** toggle; sort by newest / priority / least-effort / quick-wins-first; and a collapsible **value-vs-effort matrix** (Quick wins · Big bets · Fill-ins · Time sinks). A **quick win** = high value (`impact`) + low effort (`complexity` S or M).
+- **Tags:** freeform theme tags (`ios`, `ai`, `growth`…). The AI suggests 1–3 on estimate (only if you haven't tagged it); edit them on the detail page. Filter the board by tag.
+- **Dependencies:** each idea can be **blocked by** other ideas (ship those first). The detail page picks blockers and shows the reverse ("Blocks"); the board flags an idea **Blocked** while any blocker isn't `done`.
+- **Auto AI estimate:** on submit, the client fires `POST /api/ideas/[id]/estimate`, which sends the idea + a condensed app context to Claude (Opus 5) and fills in **complexity** (S/M/L/XL effort), **impact** (low/med/high value), **tags** and an **implementation-scope** summary. If the user set no priority, the AI's suggested priority is applied. Re-estimate from the detail page reruns it; editing the idea text auto-reruns it. You can manually override any field on the detail page.
+- **Promote to plan:** the detail page's `POST /api/ideas/[id]/plan` asks Claude (Opus 5) to turn the idea + scope + dependencies into a structured Markdown implementation plan (Goal / Approach / Data model / API / UI / Steps / Risks), stored on `plan`/`plannedAt` and copyable. This is the bridge from backlog to the gstack `/autoplan` flow.
 - **Access control (`lib/owner.ts`):** the page + API are locked to the **owner only**. If `OWNER_EMAIL` is set (Vercel env), that account is the owner; otherwise the owner is the **first-registered account** (you). Every other signed-in user is denied — they see "private to the app owner." Set `OWNER_EMAIL` if you ever want to hand ownership to a different account.
 - **How Claude reads it:** ask Claude to "read my ideas" — it fetches `GET /api/ideas` (JSON) using an authenticated session, same as the QA flow, or you paste the list. Ideas that become real work get promoted into a plan/spec and, when built, documented back here.
 
