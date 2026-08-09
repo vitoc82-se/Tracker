@@ -124,6 +124,7 @@ export default function MealsPage() {
 
   // Per-item edit UI state.
   const [expandedItem, setExpandedItem] = useState<number | null>(null);
+  const [showCorrection, setShowCorrection] = useState(false);
   const [correctionText, setCorrectionText] = useState("");
   const [correctingIndex, setCorrectingIndex] = useState<number | null>(null);
   const [correctionError, setCorrectionError] = useState("");
@@ -657,7 +658,8 @@ export default function MealsPage() {
                 <div>
                   <Label>Detected Items</Label>
                   <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-                    Wrong amount or wrong food? Tap the sliders to fix an item.
+                    Tap the sliders to change an amount (macros adjust
+                    automatically) or re-identify a wrong item.
                   </p>
                   <div className="mt-1.5 space-y-2">
                     {form.items.map((item, i) => {
@@ -684,9 +686,13 @@ export default function MealsPage() {
                               <button
                                 type="button"
                                 onClick={() => {
-                                  setExpandedItem(expanded ? null : i);
+                                  const willExpand = !expanded;
+                                  setExpandedItem(willExpand ? i : null);
                                   setCorrectionText("");
                                   setCorrectionError("");
+                                  // Non-scalable items have no amount to edit,
+                                  // so open straight to the correction path.
+                                  setShowCorrection(willExpand && !scalable);
                                 }}
                                 className={`transition-colors p-1 rounded ${
                                   expanded
@@ -710,10 +716,10 @@ export default function MealsPage() {
 
                           {expanded && (
                             <div className="px-3 pb-3 pt-1 space-y-3 border-t border-gray-200 dark:border-gray-600">
-                              {/* Amount editor */}
-                              <div>
-                                <Label className="text-xs">Amount</Label>
-                                {scalable ? (
+                              {/* Amount editor — primary, applies on its own */}
+                              {scalable && (
+                                <div>
+                                  <Label className="text-xs">Amount</Label>
                                   <div className="flex items-center gap-2 mt-1">
                                     <Input
                                       type="number"
@@ -729,56 +735,65 @@ export default function MealsPage() {
                                       {item.unit}
                                     </span>
                                     <span className="text-xs text-gray-400">
-                                      macros scale with the amount
+                                      = {formatNumber(item.calories, 0)} kcal
                                     </span>
                                   </div>
-                                ) : (
                                   <p className="text-xs text-gray-400 mt-1">
-                                    This item&apos;s amount ({item.quantity}{" "}
-                                    {item.unit}) can&apos;t be auto-scaled. Fix
-                                    it below, or remove it.
+                                    Just change the number — the macros update
+                                    automatically. No comment needed.
                                   </p>
-                                )}
-                              </div>
-
-                              {/* Correction */}
-                              <div>
-                                <Label className="text-xs">
-                                  Not right? Tell the AI what it actually is
-                                </Label>
-                                <div className="flex items-center gap-2 mt-1">
-                                  <Input
-                                    value={expanded ? correctionText : ""}
-                                    onChange={(e) =>
-                                      setCorrectionText(e.target.value)
-                                    }
-                                    placeholder="e.g., this is orange juice, not a mimosa"
-                                    className="flex-1"
-                                  />
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    disabled={
-                                      correctingIndex === i ||
-                                      !correctionText.trim()
-                                    }
-                                    onClick={() => submitCorrection(i)}
-                                  >
-                                    {correctingIndex === i ? (
-                                      "Fixing..."
-                                    ) : (
-                                      <>
-                                        <Check className="w-3.5 h-3.5 mr-1" /> Fix
-                                      </>
-                                    )}
-                                  </Button>
                                 </div>
-                                {correctionError && (
-                                  <p className="text-xs text-red-600 dark:text-red-400 mt-1">
-                                    {correctionError}
-                                  </p>
-                                )}
-                              </div>
+                              )}
+
+                              {/* Correction — optional, only for wrong food */}
+                              {showCorrection ? (
+                                <div className={scalable ? "pt-1" : ""}>
+                                  <Label className="text-xs">
+                                    Tell the AI what this food actually is
+                                  </Label>
+                                  <div className="flex items-center gap-2 mt-1">
+                                    <Input
+                                      value={correctionText}
+                                      onChange={(e) =>
+                                        setCorrectionText(e.target.value)
+                                      }
+                                      placeholder="e.g., this is orange juice, not a mimosa"
+                                      className="flex-1"
+                                    />
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      disabled={
+                                        correctingIndex === i ||
+                                        !correctionText.trim()
+                                      }
+                                      onClick={() => submitCorrection(i)}
+                                    >
+                                      {correctingIndex === i ? (
+                                        "Re-identifying..."
+                                      ) : (
+                                        <>
+                                          <Check className="w-3.5 h-3.5 mr-1" />{" "}
+                                          Re-identify
+                                        </>
+                                      )}
+                                    </Button>
+                                  </div>
+                                  {correctionError && (
+                                    <p className="text-xs text-red-600 dark:text-red-400 mt-1">
+                                      {correctionError}
+                                    </p>
+                                  )}
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setShowCorrection(true)}
+                                  className="text-xs text-emerald-600 hover:underline"
+                                >
+                                  Wrong food, not just the amount? Re-identify with AI
+                                </button>
+                              )}
                             </div>
                           )}
                         </div>
