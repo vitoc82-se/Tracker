@@ -131,6 +131,7 @@ model Goal {
   current    Float    @default(0)
   unit       String   // kcal, g, minutes, kg, lbs
   period     String   @default("daily") // daily, weekly, monthly
+  source     String   @default("manual") // manual, auto (computed from profile)
   isActive   Boolean  @default(true)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt

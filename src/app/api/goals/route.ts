@@ -84,6 +84,7 @@ export async function POST(request: Request) {
         target: body.target,
         unit: body.unit,
         period: body.period || "daily",
+        source: body.source === "auto" ? "auto" : "manual",
       },
     });
 

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { suggestGoals } from "@/lib/goal-suggestions";
 
 const GOAL_SUGGESTIONS = [
   { type: "calories", label: "Daily Calories", unit: "kcal", placeholder: "2000", description: "Total daily calorie intake target" },
@@ -36,8 +37,10 @@ export default function OnboardingPage() {
     setSaving(true);
     setError("");
 
-    if (!form.gender || !form.height || !form.weight) {
-      setError("Please fill in gender, height, and weight.");
+    // Age and activity level are required: without them the calorie/protein
+    // math produces official-looking but wrong numbers.
+    if (!form.gender || !form.height || !form.weight || !form.age || !form.activityLevel) {
+      setError("Please fill in gender, age, height, weight, and activity level.");
       setSaving(false);
       return;
     }
@@ -50,6 +53,19 @@ export default function OnboardingPage() {
       });
 
       if (res.ok) {
+        // Pre-fill step 2 with goals computed from the profile the user just
+        // entered — they review real numbers instead of typing from scratch.
+        const { goals: suggested } = suggestGoals({
+          weight: parseFloat(form.weight) || null,
+          targetWeight: parseFloat(form.targetWeight) || null,
+          height: parseFloat(form.height) || null,
+          age: parseInt(form.age) || null,
+          gender: form.gender,
+          activityLevel: form.activityLevel,
+        });
+        const prefilled: Record<string, string> = {};
+        for (const g of suggested) prefilled[g.goalType] = String(g.target);
+        setGoals(prefilled);
         setStep(2);
       } else {
         setError("Failed to save profile. Please try again.");
@@ -78,6 +94,7 @@ export default function OnboardingPage() {
             target: parseFloat(target),
             unit: suggestion?.unit || "units",
             period: "daily",
+            source: "auto",
           }),
         });
       }
@@ -109,7 +126,7 @@ export default function OnboardingPage() {
           <p className="mt-2 text-gray-600 dark:text-gray-400">
             {step === 1
               ? "Tell us a bit about yourself so we can personalize your experience"
-              : "Set daily targets to stay on track (you can change these later)"}
+              : "We calculated these from your profile — adjust anything, then save"}
           </p>
           {/* Step indicator */}
           <div className="flex items-center justify-center gap-2 mt-4">
@@ -148,6 +165,7 @@ export default function OnboardingPage() {
                       setForm({ ...form, age: e.target.value })
                     }
                     placeholder="25"
+                    required
                     className="mt-1.5"
                   />
                 </div>
@@ -208,6 +226,7 @@ export default function OnboardingPage() {
                   onChange={(e) =>
                     setForm({ ...form, activityLevel: e.target.value })
                   }
+                  required
                   className="mt-1.5"
                 >
                   <option value="">Select</option>

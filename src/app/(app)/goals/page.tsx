@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Plus, Trash2, Target, X } from "lucide-react";
+import { Plus, Trash2, Target, X, Sparkles, Check } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,6 +39,26 @@ export default function GoalsPage() {
     target: "",
     period: "daily",
   });
+
+  // "Calculate from my profile" flow.
+  interface CalcResult {
+    toCreate: { goalType: string; target: number; unit: string }[];
+    conflicts: {
+      goalType: string;
+      current: number;
+      suggested: number;
+      unit: string;
+      source: string;
+    }[];
+    skipped: { goalType: string; reason: string }[];
+  }
+  const [calc, setCalc] = useState<CalcResult | null>(null);
+  const [calcLoading, setCalcLoading] = useState(false);
+  const [calcError, setCalcError] = useState("");
+  const [replaceTypes, setReplaceTypes] = useState<Set<string>>(new Set());
+
+  const goalLabelFor = (t: string) =>
+    GOAL_TYPE_OPTIONS.find((o) => o.value === t)?.label || t;
 
   const fetchGoals = useCallback(async () => {
     try {
@@ -97,6 +117,65 @@ export default function GoalsPage() {
     }
   };
 
+  // Preview goals computed from the profile (no write yet).
+  const openCalculate = async () => {
+    setShowForm(false);
+    setCalcLoading(true);
+    setCalcError("");
+    setReplaceTypes(new Set());
+    try {
+      const res = await fetch("/api/goals/suggest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dryRun: true }),
+      });
+      if (res.ok) {
+        setCalc(await res.json());
+      } else {
+        const data = await res.json().catch(() => null);
+        setCalcError(data?.error || "Could not calculate goals.");
+      }
+    } catch (err) {
+      console.error("Calculate goals failed:", err);
+      setCalcError("Could not connect. Please try again.");
+    } finally {
+      setCalcLoading(false);
+    }
+  };
+
+  const confirmCalculate = async () => {
+    setCalcLoading(true);
+    setCalcError("");
+    try {
+      const res = await fetch("/api/goals/suggest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ replace: Array.from(replaceTypes) }),
+      });
+      if (res.ok) {
+        setCalc(null);
+        fetchGoals();
+      } else {
+        const data = await res.json().catch(() => null);
+        setCalcError(data?.error || "Could not save goals.");
+      }
+    } catch (err) {
+      console.error("Save calculated goals failed:", err);
+      setCalcError("Could not connect. Please try again.");
+    } finally {
+      setCalcLoading(false);
+    }
+  };
+
+  const toggleReplace = (goalType: string) => {
+    setReplaceTypes((prev) => {
+      const next = new Set(prev);
+      if (next.has(goalType)) next.delete(goalType);
+      else next.add(goalType);
+      return next;
+    });
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -108,18 +187,142 @@ export default function GoalsPage() {
             Set and track your nutrition and fitness goals
           </p>
         </div>
-        <Button onClick={() => setShowForm(!showForm)}>
-          {showForm ? (
-            <>
-              <X className="w-4 h-4 mr-2" /> Cancel
-            </>
-          ) : (
-            <>
-              <Plus className="w-4 h-4 mr-2" /> New Goal
-            </>
-          )}
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={openCalculate}
+            disabled={calcLoading}
+          >
+            <Sparkles className="w-4 h-4 mr-2" />
+            {calcLoading && !calc ? "Calculating..." : "Calculate from profile"}
+          </Button>
+          <Button onClick={() => setShowForm(!showForm)}>
+            {showForm ? (
+              <>
+                <X className="w-4 h-4 mr-2" /> Cancel
+              </>
+            ) : (
+              <>
+                <Plus className="w-4 h-4 mr-2" /> New Goal
+              </>
+            )}
+          </Button>
+        </div>
       </div>
+
+      {/* Calculate-from-profile preview */}
+      {calc && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Goals from your profile</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {calc.toCreate.length === 0 &&
+              calc.conflicts.length === 0 && (
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  Nothing to add — your profile doesn&apos;t have enough detail
+                  to compute new goals yet.
+                </p>
+              )}
+
+            {calc.toCreate.length > 0 && (
+              <div>
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  We&apos;ll create these:
+                </p>
+                <div className="space-y-1.5">
+                  {calc.toCreate.map((g) => (
+                    <div
+                      key={g.goalType}
+                      className="flex items-center justify-between text-sm p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-900/20"
+                    >
+                      <span className="text-gray-700 dark:text-gray-300">
+                        {goalLabelFor(g.goalType)}
+                      </span>
+                      <span className="font-medium text-emerald-700 dark:text-emerald-400">
+                        {formatNumber(g.target, 0)} {g.unit}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {calc.conflicts.length > 0 && (
+              <div>
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  You already have these goals. Tick any you want to replace with
+                  the calculated value:
+                </p>
+                <div className="space-y-1.5">
+                  {calc.conflicts.map((c) => (
+                    <label
+                      key={c.goalType}
+                      className="flex items-center justify-between text-sm p-2.5 rounded-lg bg-gray-50 dark:bg-gray-700/50 cursor-pointer"
+                    >
+                      <span className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={replaceTypes.has(c.goalType)}
+                          onChange={() => toggleReplace(c.goalType)}
+                          className="rounded"
+                        />
+                        <span className="text-gray-700 dark:text-gray-300">
+                          {goalLabelFor(c.goalType)}
+                          {c.source === "manual" && (
+                            <span className="text-xs text-amber-600 dark:text-amber-400 ml-1">
+                              (set by you)
+                            </span>
+                          )}
+                        </span>
+                      </span>
+                      <span className="text-gray-500">
+                        {formatNumber(c.current, 0)} →{" "}
+                        <span className="font-medium text-gray-900 dark:text-white">
+                          {formatNumber(c.suggested, 0)} {c.unit}
+                        </span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {calc.skipped.length > 0 && (
+              <div className="text-xs text-gray-400 dark:text-gray-500">
+                {calc.skipped.map((s) => (
+                  <p key={s.goalType}>
+                    {goalLabelFor(s.goalType)}: {s.reason}
+                  </p>
+                ))}
+              </div>
+            )}
+
+            {calcError && (
+              <p className="text-sm text-red-600 dark:text-red-400">
+                {calcError}
+              </p>
+            )}
+
+            <div className="flex gap-3">
+              <Button variant="outline" onClick={() => setCalc(null)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={confirmCalculate}
+                disabled={
+                  calcLoading ||
+                  (calc.toCreate.length === 0 && replaceTypes.size === 0)
+                }
+                className="flex-1"
+              >
+                <Check className="w-4 h-4 mr-2" />
+                {calcLoading ? "Saving..." : "Save goals"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {showForm && (
         <Card>
@@ -202,8 +405,12 @@ export default function GoalsPage() {
               No goals set
             </h3>
             <p className="text-gray-500 dark:text-gray-400 mt-1">
-              Create your first nutrition or fitness goal
+              Let us calculate them from your profile, or create one yourself
             </p>
+            <Button onClick={openCalculate} disabled={calcLoading} className="mt-4">
+              <Sparkles className="w-4 h-4 mr-2" />
+              {calcLoading ? "Calculating..." : "Calculate from my profile"}
+            </Button>
           </CardContent>
         </Card>
       ) : (
