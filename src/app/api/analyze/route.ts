@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { getCurrentUserId } from "@/lib/session";
+import { coerceNumber } from "@/lib/meal-nutrition";
 
 export async function POST(request: Request) {
   const userId = await getCurrentUserId();
@@ -86,7 +87,37 @@ Be as accurate as possible with nutritional estimates based on typical serving s
       jsonStr = jsonStr.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
     }
 
-    const analysis = JSON.parse(jsonStr);
+    const raw = JSON.parse(jsonStr);
+    if (!raw || typeof raw !== "object") {
+      return NextResponse.json(
+        { error: "AI returned invalid data. Please try again." },
+        { status: 500 }
+      );
+    }
+
+    // Coerce the AI's response into a clean numeric shape so downstream
+    // scaling never receives strings ("12g") or NaN.
+    const rawItems = Array.isArray(raw.items) ? raw.items : [];
+    const items = rawItems.map((item: Record<string, unknown>) => ({
+      name: typeof item?.name === "string" ? item.name : "Item",
+      quantity: item?.quantity != null ? String(item.quantity) : undefined,
+      unit: typeof item?.unit === "string" ? item.unit : undefined,
+      calories: coerceNumber(item?.calories),
+      protein: coerceNumber(item?.protein),
+      carbs: coerceNumber(item?.carbs),
+      fat: coerceNumber(item?.fat),
+    }));
+
+    const analysis = {
+      name: typeof raw.name === "string" ? raw.name : "",
+      items,
+      totalCalories: coerceNumber(raw.totalCalories),
+      totalProtein: coerceNumber(raw.totalProtein),
+      totalCarbs: coerceNumber(raw.totalCarbs),
+      totalFat: coerceNumber(raw.totalFat),
+      totalFiber: coerceNumber(raw.totalFiber),
+      description: typeof raw.description === "string" ? raw.description : "",
+    };
 
     return NextResponse.json(analysis);
   } catch (error: unknown) {

@@ -9,6 +9,8 @@ import {
   Pencil,
   UtensilsCrossed,
   X,
+  Check,
+  SlidersHorizontal,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,8 +19,15 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { formatNumber } from "@/lib/utils";
+import {
+  parseQuantity,
+  scaleMacros,
+  isScalable,
+  recomputeTotals,
+  coerceNumber,
+} from "@/lib/meal-nutrition";
 
-interface MealItem {
+interface FormItem {
   id?: string;
   name: string;
   calories: number;
@@ -27,6 +36,12 @@ interface MealItem {
   fat: number;
   quantity?: string;
   unit?: string;
+  // Stored base for stable proportional scaling (never mutated on edit).
+  baseQuantity: number | null;
+  baseCalories: number;
+  baseProtein: number;
+  baseCarbs: number;
+  baseFat: number;
 }
 
 interface Meal {
@@ -42,7 +57,16 @@ interface Meal {
   notes: string | null;
   aiAnalysis: string | null;
   loggedAt: string;
-  items: MealItem[];
+  items: {
+    id?: string;
+    name: string;
+    calories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+    quantity?: string;
+    unit?: string;
+  }[];
 }
 
 const MEAL_TYPE_LABELS: Record<string, string> = {
@@ -51,6 +75,39 @@ const MEAL_TYPE_LABELS: Record<string, string> = {
   dinner: "Dinner",
   snack: "Snack",
 };
+
+// Build a FormItem (with scaling base) from an AI-analysis or DB item.
+function toFormItem(item: {
+  id?: string;
+  name?: unknown;
+  quantity?: unknown;
+  unit?: unknown;
+  calories?: unknown;
+  protein?: unknown;
+  carbs?: unknown;
+  fat?: unknown;
+}): FormItem {
+  const calories = coerceNumber(item.calories);
+  const protein = coerceNumber(item.protein);
+  const carbs = coerceNumber(item.carbs);
+  const fat = coerceNumber(item.fat);
+  const quantity = item.quantity != null ? String(item.quantity) : undefined;
+  return {
+    id: item.id,
+    name: typeof item.name === "string" ? item.name : "Item",
+    quantity,
+    unit: item.unit != null ? String(item.unit) : undefined,
+    calories,
+    protein,
+    carbs,
+    fat,
+    baseQuantity: parseQuantity(quantity),
+    baseCalories: calories,
+    baseProtein: protein,
+    baseCarbs: carbs,
+    baseFat: fat,
+  };
+}
 
 export default function MealsPage() {
   const [meals, setMeals] = useState<Meal[]>([]);
@@ -65,6 +122,12 @@ export default function MealsPage() {
   const [imageMimeType, setImageMimeType] = useState<string>("image/jpeg");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Per-item edit UI state.
+  const [expandedItem, setExpandedItem] = useState<number | null>(null);
+  const [correctionText, setCorrectionText] = useState("");
+  const [correctingIndex, setCorrectingIndex] = useState<number | null>(null);
+  const [correctionError, setCorrectionError] = useState("");
+
   const [form, setForm] = useState({
     name: "",
     mealType: "lunch",
@@ -74,8 +137,17 @@ export default function MealsPage() {
     fat: "",
     fiber: "",
     notes: "",
-    items: [] as MealItem[],
+    items: [] as FormItem[],
+    // Baseline for deriving fiber proportionally (items carry no fiber field).
+    fiberBasis: null as { fiber: number; calories: number } | null,
   });
+
+  const hasItems = form.items.length > 0;
+  const derived = recomputeTotals(form.items);
+  const derivedFiber =
+    form.fiberBasis && form.fiberBasis.calories > 0
+      ? form.fiberBasis.fiber * (derived.calories / form.fiberBasis.calories)
+      : form.fiberBasis?.fiber ?? 0;
 
   const fetchMeals = useCallback(async () => {
     try {
@@ -101,14 +173,34 @@ export default function MealsPage() {
     reader.onload = () => {
       const result = reader.result as string;
       setPreviewImage(result);
-      // Extract base64 data (remove data:image/...;base64, prefix)
       setImageBase64(result.split(",")[1]);
     };
     reader.readAsDataURL(file);
   };
 
+  // True when the user has typed or edited anything the AI would overwrite.
+  const formHasContent = () =>
+    Boolean(
+      form.name ||
+        form.items.length ||
+        form.calories ||
+        form.protein ||
+        form.carbs ||
+        form.fat ||
+        form.fiber
+    );
+
   const analyzeImage = async () => {
     if (!imageBase64) return;
+    // Guard: full re-analysis overwrites the whole form. Confirm if dirty.
+    if (
+      formHasContent() &&
+      !confirm(
+        "Re-analyzing will replace the current name, totals, and detected items, including any edits you made. Continue?"
+      )
+    ) {
+      return;
+    }
     setAnalyzing(true);
     setAnalyzeError("");
 
@@ -121,6 +213,7 @@ export default function MealsPage() {
 
       if (res.ok) {
         const analysis = await res.json();
+        const items: FormItem[] = (analysis.items || []).map(toFormItem);
         setForm((prev) => ({
           ...prev,
           name: analysis.name || prev.name,
@@ -129,8 +222,13 @@ export default function MealsPage() {
           carbs: String(analysis.totalCarbs || ""),
           fat: String(analysis.totalFat || ""),
           fiber: String(analysis.totalFiber || ""),
-          items: analysis.items || [],
+          items,
+          fiberBasis: {
+            fiber: coerceNumber(analysis.totalFiber),
+            calories: coerceNumber(analysis.totalCalories),
+          },
         }));
+        setExpandedItem(null);
       } else {
         const data = await res.json().catch(() => null);
         setAnalyzeError(
@@ -145,8 +243,69 @@ export default function MealsPage() {
     }
   };
 
+  // Live text edit of an item's amount (macros settle on blur).
+  const updateItemQuantityText = (index: number, text: string) => {
+    setForm((prev) => {
+      const items = [...prev.items];
+      items[index] = { ...items[index], quantity: text };
+      return { ...prev, items };
+    });
+  };
+
+  // Commit an amount edit: scale macros from the stored base.
+  const commitItemAmount = (index: number) => {
+    setForm((prev) => {
+      const items = [...prev.items];
+      const it = items[index];
+      if (!isScalable(it)) return prev;
+      const newQty = parseQuantity(it.quantity);
+      if (newQty == null || newQty <= 0) {
+        // Invalid amount: revert display to the base quantity.
+        items[index] = { ...it, quantity: String(it.baseQuantity) };
+        return { ...prev, items };
+      }
+      const scaled = scaleMacros(it, newQty);
+      items[index] = { ...it, ...scaled };
+      return { ...prev, items };
+    });
+  };
+
+  const submitCorrection = async (index: number) => {
+    const text = correctionText.trim();
+    if (!text) return;
+    const item = form.items[index];
+    setCorrectingIndex(index);
+    setCorrectionError("");
+    try {
+      const res = await fetch("/api/analyze/correct", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemName: item.name, correction: text, unit: item.unit }),
+      });
+      if (res.ok) {
+        const corrected = await res.json();
+        setForm((prev) => {
+          const items = [...prev.items];
+          items[index] = toFormItem(corrected);
+          return { ...prev, items };
+        });
+        setCorrectionText("");
+        setExpandedItem(null);
+      } else {
+        const data = await res.json().catch(() => null);
+        setCorrectionError(data?.error || "Correction failed. Please try again.");
+      }
+    } catch (err) {
+      console.error("Correction failed:", err);
+      setCorrectionError("Could not connect to the correction service.");
+    } finally {
+      setCorrectingIndex(null);
+    }
+  };
+
   const startEdit = (meal: Meal) => {
     setEditingId(meal.id);
+    const items = (meal.items || []).map(toFormItem);
     setForm({
       name: meal.name,
       mealType: meal.mealType,
@@ -156,11 +315,16 @@ export default function MealsPage() {
       fat: String(meal.fat),
       fiber: String(meal.fiber),
       notes: meal.notes || "",
-      items: [],
+      items,
+      fiberBasis:
+        items.length > 0
+          ? { fiber: meal.fiber, calories: meal.calories }
+          : null,
     });
     if (meal.imageUrl) {
       setPreviewImage(meal.imageUrl);
     }
+    setExpandedItem(null);
     setShowForm(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -170,7 +334,6 @@ export default function MealsPage() {
     setSubmitting(true);
 
     try {
-      // Upload image if present (only for new images, not existing URLs)
       let imageUrl: string | undefined;
       if (previewImage && fileInputRef.current?.files?.[0]) {
         const formData = new FormData();
@@ -185,17 +348,41 @@ export default function MealsPage() {
         }
       }
 
+      // Totals derive from items when items exist; otherwise use the manual
+      // fields.
+      const totals = hasItems
+        ? {
+            calories: derived.calories,
+            protein: derived.protein,
+            carbs: derived.carbs,
+            fat: derived.fat,
+            fiber: derivedFiber,
+          }
+        : {
+            calories: parseFloat(form.calories) || 0,
+            protein: parseFloat(form.protein) || 0,
+            carbs: parseFloat(form.carbs) || 0,
+            fat: parseFloat(form.fat) || 0,
+            fiber: parseFloat(form.fiber) || 0,
+          };
+
       const payload = {
         name: form.name,
         mealType: form.mealType,
-        calories: parseFloat(form.calories) || 0,
-        protein: parseFloat(form.protein) || 0,
-        carbs: parseFloat(form.carbs) || 0,
-        fat: parseFloat(form.fat) || 0,
-        fiber: parseFloat(form.fiber) || 0,
+        ...totals,
         notes: form.notes || undefined,
         ...(imageUrl ? { imageUrl } : {}),
-        ...(!editingId ? { items: form.items } : {}),
+        // Items are sent on both create and edit so amount/correction edits
+        // persist for saved meals too.
+        items: form.items.map((it) => ({
+          name: it.name,
+          calories: it.calories,
+          protein: it.protein,
+          carbs: it.carbs,
+          fat: it.fat,
+          quantity: it.quantity,
+          unit: it.unit,
+        })),
       };
 
       const url = editingId ? `/api/meals/${editingId}` : "/api/meals";
@@ -230,26 +417,11 @@ export default function MealsPage() {
   };
 
   const removeItem = (index: number) => {
-    setForm((prev) => {
-      const newItems = prev.items.filter((_, i) => i !== index);
-      const totals = newItems.reduce(
-        (acc, item) => ({
-          calories: acc.calories + (item.calories || 0),
-          protein: acc.protein + (item.protein || 0),
-          carbs: acc.carbs + (item.carbs || 0),
-          fat: acc.fat + (item.fat || 0),
-        }),
-        { calories: 0, protein: 0, carbs: 0, fat: 0 }
-      );
-      return {
-        ...prev,
-        items: newItems,
-        calories: newItems.length > 0 ? String(totals.calories) : prev.calories,
-        protein: newItems.length > 0 ? String(totals.protein) : prev.protein,
-        carbs: newItems.length > 0 ? String(totals.carbs) : prev.carbs,
-        fat: newItems.length > 0 ? String(totals.fat) : prev.fat,
-      };
-    });
+    setForm((prev) => ({
+      ...prev,
+      items: prev.items.filter((_, i) => i !== index),
+    }));
+    setExpandedItem(null);
   };
 
   const resetForm = () => {
@@ -263,11 +435,15 @@ export default function MealsPage() {
       fiber: "",
       notes: "",
       items: [],
+      fiberBasis: null,
     });
     setEditingId(null);
     setPreviewImage(null);
     setImageBase64(null);
     setAnalyzeError("");
+    setExpandedItem(null);
+    setCorrectionText("");
+    setCorrectionError("");
   };
 
   return (
@@ -397,17 +573,24 @@ export default function MealsPage() {
                 </div>
               </div>
 
+              {hasItems && (
+                <p className="text-xs text-gray-400 dark:text-gray-500">
+                  Totals are calculated from the items below. Edit an item&apos;s
+                  amount to update them.
+                </p>
+              )}
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
                 <div>
                   <Label htmlFor="calories">Calories</Label>
                   <Input
                     id="calories"
                     type="number"
-                    value={form.calories}
+                    value={hasItems ? formatNumber(derived.calories, 0) : form.calories}
                     onChange={(e) =>
                       setForm({ ...form, calories: e.target.value })
                     }
                     placeholder="kcal"
+                    readOnly={hasItems}
                     className="mt-1.5"
                   />
                 </div>
@@ -416,11 +599,12 @@ export default function MealsPage() {
                   <Input
                     id="protein"
                     type="number"
-                    value={form.protein}
+                    value={hasItems ? formatNumber(derived.protein, 0) : form.protein}
                     onChange={(e) =>
                       setForm({ ...form, protein: e.target.value })
                     }
                     placeholder="g"
+                    readOnly={hasItems}
                     className="mt-1.5"
                   />
                 </div>
@@ -429,11 +613,12 @@ export default function MealsPage() {
                   <Input
                     id="carbs"
                     type="number"
-                    value={form.carbs}
+                    value={hasItems ? formatNumber(derived.carbs, 0) : form.carbs}
                     onChange={(e) =>
                       setForm({ ...form, carbs: e.target.value })
                     }
                     placeholder="g"
+                    readOnly={hasItems}
                     className="mt-1.5"
                   />
                 </div>
@@ -442,11 +627,12 @@ export default function MealsPage() {
                   <Input
                     id="fat"
                     type="number"
-                    value={form.fat}
+                    value={hasItems ? formatNumber(derived.fat, 0) : form.fat}
                     onChange={(e) =>
                       setForm({ ...form, fat: e.target.value })
                     }
                     placeholder="g"
+                    readOnly={hasItems}
                     className="mt-1.5"
                   />
                 </div>
@@ -455,49 +641,149 @@ export default function MealsPage() {
                   <Input
                     id="fiber"
                     type="number"
-                    value={form.fiber}
+                    value={hasItems ? formatNumber(derivedFiber, 0) : form.fiber}
                     onChange={(e) =>
                       setForm({ ...form, fiber: e.target.value })
                     }
                     placeholder="g"
+                    readOnly={hasItems}
                     className="mt-1.5"
                   />
                 </div>
               </div>
 
-              {/* AI detected items */}
-              {form.items.length > 0 && (
+              {/* Detected items — editable */}
+              {hasItems && (
                 <div>
                   <Label>Detected Items</Label>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                    Wrong amount or wrong food? Tap the sliders to fix an item.
+                  </p>
                   <div className="mt-1.5 space-y-2">
-                    {form.items.map((item, i) => (
-                      <div
-                        key={i}
-                        className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg text-sm"
-                      >
-                        <span className="font-medium text-gray-700 dark:text-gray-300">
-                          {item.name}
-                          {item.quantity && (
-                            <span className="text-gray-400 ml-1">
-                              ({item.quantity} {item.unit})
+                    {form.items.map((item, i) => {
+                      const scalable = isScalable(item);
+                      const expanded = expandedItem === i;
+                      return (
+                        <div
+                          key={i}
+                          className="bg-gray-50 dark:bg-gray-700/50 rounded-lg text-sm overflow-hidden"
+                        >
+                          <div className="flex items-center justify-between p-3">
+                            <span className="font-medium text-gray-700 dark:text-gray-300 min-w-0 truncate">
+                              {item.name}
+                              {item.quantity && (
+                                <span className="text-gray-400 ml-1">
+                                  ({item.quantity} {item.unit})
+                                </span>
+                              )}
                             </span>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className="text-gray-500">
+                                {formatNumber(item.calories, 0)} kcal
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setExpandedItem(expanded ? null : i);
+                                  setCorrectionText("");
+                                  setCorrectionError("");
+                                }}
+                                className={`transition-colors p-1 rounded ${
+                                  expanded
+                                    ? "text-emerald-600"
+                                    : "text-gray-400 hover:text-emerald-600"
+                                }`}
+                                title="Edit amount or fix this item"
+                              >
+                                <SlidersHorizontal className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => removeItem(i)}
+                                className="text-gray-400 hover:text-red-500 transition-colors p-1 rounded"
+                                title="Remove item"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+
+                          {expanded && (
+                            <div className="px-3 pb-3 pt-1 space-y-3 border-t border-gray-200 dark:border-gray-600">
+                              {/* Amount editor */}
+                              <div>
+                                <Label className="text-xs">Amount</Label>
+                                {scalable ? (
+                                  <div className="flex items-center gap-2 mt-1">
+                                    <Input
+                                      type="number"
+                                      inputMode="decimal"
+                                      value={item.quantity ?? ""}
+                                      onChange={(e) =>
+                                        updateItemQuantityText(i, e.target.value)
+                                      }
+                                      onBlur={() => commitItemAmount(i)}
+                                      className="w-28"
+                                    />
+                                    <span className="text-gray-500">
+                                      {item.unit}
+                                    </span>
+                                    <span className="text-xs text-gray-400">
+                                      macros scale with the amount
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <p className="text-xs text-gray-400 mt-1">
+                                    This item&apos;s amount ({item.quantity}{" "}
+                                    {item.unit}) can&apos;t be auto-scaled. Fix
+                                    it below, or remove it.
+                                  </p>
+                                )}
+                              </div>
+
+                              {/* Correction */}
+                              <div>
+                                <Label className="text-xs">
+                                  Not right? Tell the AI what it actually is
+                                </Label>
+                                <div className="flex items-center gap-2 mt-1">
+                                  <Input
+                                    value={expanded ? correctionText : ""}
+                                    onChange={(e) =>
+                                      setCorrectionText(e.target.value)
+                                    }
+                                    placeholder="e.g., this is orange juice, not a mimosa"
+                                    className="flex-1"
+                                  />
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    disabled={
+                                      correctingIndex === i ||
+                                      !correctionText.trim()
+                                    }
+                                    onClick={() => submitCorrection(i)}
+                                  >
+                                    {correctingIndex === i ? (
+                                      "Fixing..."
+                                    ) : (
+                                      <>
+                                        <Check className="w-3.5 h-3.5 mr-1" /> Fix
+                                      </>
+                                    )}
+                                  </Button>
+                                </div>
+                                {correctionError && (
+                                  <p className="text-xs text-red-600 dark:text-red-400 mt-1">
+                                    {correctionError}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
                           )}
-                        </span>
-                        <div className="flex items-center gap-2">
-                          <span className="text-gray-500">
-                            {formatNumber(item.calories, 0)} kcal
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => removeItem(i)}
-                            className="text-gray-400 hover:text-red-500 transition-colors p-1 rounded"
-                            title="Remove item"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
