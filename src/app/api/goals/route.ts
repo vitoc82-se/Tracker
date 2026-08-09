@@ -15,7 +15,58 @@ export async function GET() {
     orderBy: { createdAt: "desc" },
   });
 
-  return NextResponse.json(goals);
+  // The stored `current` field is never mutated when meals/exercises are
+  // logged, so it always reads 0. Compute progress live from logged data,
+  // scoped to each goal's period, matching the dashboard's calculation.
+  const now = new Date();
+  const periodStart = (period: string) => {
+    const start = new Date();
+    if (period === "weekly") {
+      start.setDate(start.getDate() - 6);
+    } else if (period === "monthly") {
+      start.setDate(start.getDate() - 29);
+    }
+    start.setHours(0, 0, 0, 0);
+    return start;
+  };
+
+  const goalsWithProgress = await Promise.all(
+    goals.map(async (goal) => {
+      const start = periodStart(goal.period);
+
+      if (goal.goalType === "exercise_minutes") {
+        const exercises = await db.exercise.findMany({
+          where: { userId, loggedAt: { gte: start, lte: now } },
+          select: { duration: true },
+        });
+        const current = exercises.reduce((sum, e) => sum + e.duration, 0);
+        return { ...goal, current };
+      }
+
+      const meals = await db.meal.findMany({
+        where: { userId, loggedAt: { gte: start, lte: now } },
+        select: { calories: true, protein: true, carbs: true, fat: true },
+      });
+      let current = 0;
+      switch (goal.goalType) {
+        case "calories":
+          current = meals.reduce((sum, m) => sum + m.calories, 0);
+          break;
+        case "protein":
+          current = meals.reduce((sum, m) => sum + m.protein, 0);
+          break;
+        case "carbs":
+          current = meals.reduce((sum, m) => sum + m.carbs, 0);
+          break;
+        case "fat":
+          current = meals.reduce((sum, m) => sum + m.fat, 0);
+          break;
+      }
+      return { ...goal, current };
+    })
+  );
+
+  return NextResponse.json(goalsWithProgress);
 }
 
 export async function POST(request: Request) {
