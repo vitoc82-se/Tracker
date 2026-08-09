@@ -11,14 +11,14 @@ const geistSans = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "NutriTrack - Fitness & Nutrition Tracker",
+  title: "SnapMeal - Snap your meal, know your macros",
   description:
-    "Track your meals, exercises, and nutrition goals with AI-powered food analysis",
+    "Snap a photo of your meal and get calories and macros instantly. Goals that set themselves from your body and your target.",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "NutriTrack",
+    title: "SnapMeal",
   },
 };
 
@@ -41,7 +41,7 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-        <meta name="apple-mobile-web-app-title" content="NutriTrack" />
+        <meta name="apple-mobile-web-app-title" content="SnapMeal" />
       </head>
       <body className={`${geistSans.variable} font-sans antialiased`}>
         <Providers>{children}</Providers>

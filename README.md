@@ -1,4 +1,4 @@
-# NutriTrack - AI-Powered Fitness & Nutrition Tracker
+# SnapMeal - AI-Powered Fitness & Nutrition Tracker
 
 A full-stack fitness and nutrition tracking app with AI-powered food photo analysis, built with Next.js and deployed on Vercel.
 

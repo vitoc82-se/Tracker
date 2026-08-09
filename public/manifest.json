@@ -1,7 +1,7 @@
 {
-  "name": "NutriTrack",
-  "short_name": "NutriTrack",
-  "description": "AI-powered nutrition and fitness tracking",
+  "name": "SnapMeal",
+  "short_name": "SnapMeal",
+  "description": "Snap a photo of your meal and get calories and macros instantly",
   "start_url": "/dashboard",
   "display": "standalone",
   "background_color": "#f9fafb",
