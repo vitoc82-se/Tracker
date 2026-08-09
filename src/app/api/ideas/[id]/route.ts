@@ -4,6 +4,7 @@ import { getSession } from "@/lib/session";
 import { isOwner } from "@/lib/owner";
 
 const STATUSES = ["new", "considering", "building", "done", "parked"];
+const PRIORITIES = ["none", "low", "medium", "high"];
 
 export async function PATCH(
   request: Request,
@@ -22,10 +23,16 @@ export async function PATCH(
 
   try {
     const body = await request.json();
-    const data: { title?: string; notes?: string | null; status?: string } = {};
+    const data: {
+      title?: string;
+      notes?: string | null;
+      status?: string;
+      priority?: string;
+    } = {};
     if (typeof body?.title === "string" && body.title.trim()) data.title = body.title.trim();
     if (body?.notes !== undefined) data.notes = body.notes ? String(body.notes) : null;
     if (STATUSES.includes(body?.status)) data.status = body.status;
+    if (PRIORITIES.includes(body?.priority)) data.priority = body.priority;
 
     const idea = await db.idea.update({ where: { id: params.id }, data });
     return NextResponse.json(idea);

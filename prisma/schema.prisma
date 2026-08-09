@@ -148,6 +148,11 @@ model Idea {
   title     String
   notes     String?  // longer description / detail
   status    String   @default("new") // new, considering, building, done, parked
+  priority  String   @default("none") // none, low, medium, high (you set this)
+  // AI estimate (filled in the background after you submit):
+  complexity    String?   // S, M, L, XL
+  scope         String?   // implementation-scope summary
+  aiEstimatedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

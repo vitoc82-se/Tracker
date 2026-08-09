@@ -83,7 +83,8 @@ The living reference for how SnapMeal is built and wired together. Keep this cur
 
 ## 7. The Ideas backlog (owner-only)
 
-- **Where:** `snapmeal.dev/ideas` (behind login). Add ideas via a simple form; each has a status you can move (new → considering → building → done / parked).
+- **Where:** `snapmeal.dev/ideas` (behind login). Add ideas via a simple form; each has a **priority** (you set) and a **status** you can move (new → considering → building → done / parked).
+- **Auto AI estimate:** on submit, the client fires `POST /api/ideas/[id]/estimate`, which sends the idea + a condensed app context to Claude and fills in **complexity** (S/M/L/XL) and an **implementation-scope** summary on the idea. The card shows "Estimating…" then updates; a re-estimate link reruns it. If the user set no priority, the AI's suggested priority is applied.
 - **Access control (`lib/owner.ts`):** the page + API are locked to the **owner only**. If `OWNER_EMAIL` is set (Vercel env), that account is the owner; otherwise the owner is the **first-registered account** (you). Every other signed-in user is denied — they see "private to the app owner." Set `OWNER_EMAIL` if you ever want to hand ownership to a different account.
 - **How Claude reads it:** ask Claude to "read my ideas" — it fetches `GET /api/ideas` (JSON) using an authenticated session, same as the QA flow, or you paste the list. Ideas that become real work get promoted into a plan/spec and, when built, documented back here.
 

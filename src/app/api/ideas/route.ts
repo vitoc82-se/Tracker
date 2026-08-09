@@ -6,6 +6,7 @@ import { isOwner } from "@/lib/owner";
 export const dynamic = "force-dynamic";
 
 const STATUSES = ["new", "considering", "building", "done", "parked"];
+const PRIORITIES = ["none", "low", "medium", "high"];
 
 export async function GET() {
   const session = await getSession();
@@ -41,6 +42,7 @@ export async function POST(request: Request) {
         title,
         notes: body?.notes ? String(body.notes) : null,
         status: STATUSES.includes(body?.status) ? body.status : "new",
+        priority: PRIORITIES.includes(body?.priority) ? body.priority : "none",
       },
     });
     return NextResponse.json(idea, { status: 201 });
