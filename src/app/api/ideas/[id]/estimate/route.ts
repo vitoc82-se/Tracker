@@ -59,9 +59,10 @@ A feature idea to estimate:
 Title: ${idea.title}
 Notes: ${idea.notes || "(none)"}
 
-Estimate what it would take to build this in SnapMeal. Return ONLY valid JSON, no other text:
+Estimate what it would take to build this in SnapMeal, and how valuable it is. Return ONLY valid JSON, no other text:
 {
   "complexity": "S | M | L | XL",
+  "impact": "low | medium | high — how much this improves the product for its users (user value, differentiation, reach). Judge value, not effort.",
   "scope": "2-4 sentences: what it touches (models, endpoints, UI), the rough steps, and any real risk or dependency. Concrete and specific to this app.",
   "suggestedPriority": "low | medium | high"
 }`,
@@ -82,6 +83,9 @@ Estimate what it would take to build this in SnapMeal. Return ONLY valid JSON, n
     const complexity = ["S", "M", "L", "XL"].includes(raw?.complexity)
       ? raw.complexity
       : "M";
+    const impact = ["low", "medium", "high"].includes(raw?.impact)
+      ? raw.impact
+      : null;
     const scope = typeof raw?.scope === "string" ? raw.scope.trim() : null;
     // Only suggest a priority if the user hasn't set one yet.
     const suggested = ["low", "medium", "high"].includes(raw?.suggestedPriority)
@@ -92,6 +96,7 @@ Estimate what it would take to build this in SnapMeal. Return ONLY valid JSON, n
       where: { id: params.id },
       data: {
         complexity,
+        impact,
         scope,
         aiEstimatedAt: new Date(),
         ...(idea.priority === "none" && suggested ? { priority: suggested } : {}),

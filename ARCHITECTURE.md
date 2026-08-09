@@ -36,7 +36,7 @@ The living reference for how SnapMeal is built and wired together. Keep this cur
 - **MealItem** — a single detected food: `name, quantity, unit, calories, protein, carbs, fat`. (No fiber at item level; fiber is meal-level only.)
 - **Exercise** — logged activity: `caloriesBurned, duration, ...`.
 - **Goal** — `goalType` (calories | protein | carbs | fat | exercise_minutes | weight), `target, unit, period, source` (`manual` | `auto`). Live progress is computed on read, not stored (the stored `current` field is ignored).
-- **Idea** — the private backlog: `title, notes, status` (new | considering | building | done | parked). See §7.
+- **Idea** — the private backlog: `title, notes, status` (new | considering | building | done | parked), `priority` (you set), and AI-filled `complexity` (S/M/L/XL effort), `impact` (low/med/high value), `scope`. See §7.
 
 ## 4. Routes
 
@@ -54,7 +54,7 @@ The living reference for how SnapMeal is built and wired together. Keep this cur
 - `dashboard` (GET) — aggregates today's intake, burn, macros, chart data, live goal progress, weight plan.
 - `profile` (GET/PUT), `exercises` (GET/POST), `exercises/[id]`, `upload` (POST → Blob).
 - `auth/register` (POST), `auth/[...nextauth]` (NextAuth).
-- `ideas` (GET/POST), `ideas/[id]` (PATCH/DELETE) — owner-gated backlog. See §7.
+- `ideas` (GET/POST), `ideas/[id]` (PATCH/DELETE), `ideas/[id]/estimate` (POST) — owner-gated backlog. See §7.
 
 ## 5. Key flows
 
@@ -83,8 +83,9 @@ The living reference for how SnapMeal is built and wired together. Keep this cur
 
 ## 7. The Ideas backlog (owner-only)
 
-- **Where:** `snapmeal.dev/ideas` (behind login). Add ideas via a simple form; each has a **priority** (you set) and a **status** you can move (new → considering → building → done / parked).
-- **Auto AI estimate:** on submit, the client fires `POST /api/ideas/[id]/estimate`, which sends the idea + a condensed app context to Claude and fills in **complexity** (S/M/L/XL) and an **implementation-scope** summary on the idea. The card shows "Estimating…" then updates; a re-estimate link reruns it. If the user set no priority, the AI's suggested priority is applied.
+- **Two views:** `/ideas` is a compact **board** (one row per idea: title + badges + a quick status dropdown, links to the detail page). `/ideas/[id]` is the **detail page** — full notes, the AI implementation scope, inline edit (title/notes), all triage controls (status/priority/value/effort), re-estimate, and delete. The board deliberately does **not** show the scope text; that lives on the detail page.
+- **Board tooling:** summary stat chips (total, open, quick-wins count, per-status counts); a search box; filters for status / priority / effort and a **quick-wins** toggle; sort by newest / priority / least-effort / quick-wins-first; and a collapsible **value-vs-effort matrix** (Quick wins · Big bets · Fill-ins · Time sinks). A **quick win** = high value (`impact`) + low effort (`complexity` S or M).
+- **Auto AI estimate:** on submit, the client fires `POST /api/ideas/[id]/estimate`, which sends the idea + a condensed app context to Claude (Opus 5) and fills in **complexity** (S/M/L/XL effort), **impact** (low/med/high value) and an **implementation-scope** summary. If the user set no priority, the AI's suggested priority is applied. Re-estimate from the detail page reruns it; editing the idea text auto-reruns it. You can manually override value/effort on the detail page.
 - **Access control (`lib/owner.ts`):** the page + API are locked to the **owner only**. If `OWNER_EMAIL` is set (Vercel env), that account is the owner; otherwise the owner is the **first-registered account** (you). Every other signed-in user is denied — they see "private to the app owner." Set `OWNER_EMAIL` if you ever want to hand ownership to a different account.
 - **How Claude reads it:** ask Claude to "read my ideas" — it fetches `GET /api/ideas` (JSON) using an authenticated session, same as the QA flow, or you paste the list. Ideas that become real work get promoted into a plan/spec and, when built, documented back here.
 

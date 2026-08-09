@@ -150,7 +150,8 @@ model Idea {
   status    String   @default("new") // new, considering, building, done, parked
   priority  String   @default("none") // none, low, medium, high (you set this)
   // AI estimate (filled in the background after you submit):
-  complexity    String?   // S, M, L, XL
+  complexity    String?   // S, M, L, XL (effort)
+  impact        String?   // low, medium, high (value/impact — AI-suggested, you can override)
   scope         String?   // implementation-scope summary
   aiEstimatedAt DateTime?
   createdAt DateTime @default(now())
