@@ -42,6 +42,28 @@ export async function PUT(
     }
 
     const body = await request.json();
+
+    // When the client sends items (edited amounts / corrected items), replace
+    // the meal's item set. Undefined items = caller didn't touch them, leave
+    // as-is; an explicit empty array clears them.
+    const itemsUpdate =
+      body.items !== undefined
+        ? {
+            items: {
+              deleteMany: {},
+              create: (body.items as Array<Record<string, unknown>>).map((item) => ({
+                name: String(item.name ?? ""),
+                calories: Number(item.calories) || 0,
+                protein: Number(item.protein) || 0,
+                carbs: Number(item.carbs) || 0,
+                fat: Number(item.fat) || 0,
+                quantity: item.quantity != null ? String(item.quantity) : null,
+                unit: item.unit != null ? String(item.unit) : null,
+              })),
+            },
+          }
+        : {};
+
     const meal = await db.meal.update({
       where: { id: params.id },
       data: {
@@ -54,6 +76,7 @@ export async function PUT(
         fiber: body.fiber,
         notes: body.notes,
         loggedAt: body.loggedAt ? new Date(body.loggedAt) : undefined,
+        ...itemsUpdate,
       },
       include: { items: true },
     });
