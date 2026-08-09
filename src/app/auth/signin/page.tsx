@@ -69,7 +69,7 @@ export default function SignInPage() {
           <p className="mt-2 text-gray-600 dark:text-gray-400">
             {isRegister
               ? "Start tracking your nutrition and fitness"
-              : "Sign in to your NutriTrack account"}
+              : "Sign in to your SnapMeal account"}
           </p>
         </div>
 

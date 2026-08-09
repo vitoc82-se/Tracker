@@ -12,6 +12,7 @@ import {
   Target,
   User,
   LogOut,
+  Camera,
 } from "lucide-react";
 import { Button } from "./ui/button";
 
@@ -35,10 +36,10 @@ export function Navbar() {
       <aside className="hidden lg:flex lg:flex-col lg:w-64 lg:fixed lg:inset-y-0 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 z-30">
         <div className="flex items-center gap-2 px-6 py-5 border-b border-gray-200 dark:border-gray-700">
           <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center">
-            <UtensilsCrossed className="w-5 h-5 text-white" />
+            <Camera className="w-5 h-5 text-white" />
           </div>
           <span className="text-lg font-bold text-gray-900 dark:text-white">
-            NutriTrack
+            SnapMeal
           </span>
         </div>
 
@@ -85,10 +86,10 @@ export function Navbar() {
         <div className="flex items-center justify-between px-4 py-3">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center">
-              <UtensilsCrossed className="w-5 h-5 text-white" />
+              <Camera className="w-5 h-5 text-white" />
             </div>
             <span className="text-lg font-bold text-gray-900 dark:text-white">
-              NutriTrack
+              SnapMeal
             </span>
           </div>
           <button

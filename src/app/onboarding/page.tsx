@@ -123,7 +123,7 @@ export default function OnboardingPage() {
             )}
           </div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-            {step === 1 ? "Welcome to NutriTrack" : "Set Your Goals"}
+            {step === 1 ? "Welcome to SnapMeal" : "Set Your Goals"}
           </h1>
           <p className="mt-2 text-gray-600 dark:text-gray-400">
             {step === 1
