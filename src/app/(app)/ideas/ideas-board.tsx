@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Lightbulb, Plus, Trash2, X, Sparkles, Loader2 } from "lucide-react";
+import { Lightbulb, Plus, Trash2, X, Sparkles, Loader2, Pencil, Check } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -64,6 +64,9 @@ export function IdeasBoard() {
   const [submitting, setSubmitting] = useState(false);
   const [estimating, setEstimating] = useState<Set<string>>(new Set());
   const [form, setForm] = useState({ title: "", notes: "", priority: "none" });
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ title: "", notes: "" });
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const fetchIdeas = useCallback(async () => {
     try {
@@ -143,6 +146,41 @@ export function IdeasBoard() {
       });
     } catch (err) {
       console.error("Failed to update idea:", err);
+    }
+  };
+
+  const startEdit = (idea: Idea) => {
+    setEditingId(idea.id);
+    setEditForm({ title: idea.title, notes: idea.notes || "" });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditForm({ title: "", notes: "" });
+  };
+
+  const saveEdit = async (idea: Idea) => {
+    const title = editForm.title.trim();
+    if (!title) return;
+    const notes = editForm.notes.trim() || null;
+    const changed = title !== idea.title || notes !== (idea.notes || null);
+    setSavingEdit(true);
+    setIdeas((prev) =>
+      prev.map((i) => (i.id === idea.id ? { ...i, title, notes } : i))
+    );
+    try {
+      await fetch(`/api/ideas/${idea.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, notes }),
+      });
+      setEditingId(null);
+      // The idea text drives the AI estimate, so refresh it when it changed.
+      if (changed) runEstimate(idea.id);
+    } catch (err) {
+      console.error("Failed to save idea:", err);
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -260,9 +298,62 @@ export function IdeasBoard() {
         <div className="space-y-3">
           {ideas.map((idea) => {
             const isEstimating = estimating.has(idea.id);
+            const isEditing = editingId === idea.id;
             return (
               <Card key={idea.id}>
                 <CardContent className="p-4">
+                  {isEditing ? (
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        saveEdit(idea);
+                      }}
+                      className="space-y-3"
+                    >
+                      <div>
+                        <Label htmlFor={`edit-title-${idea.id}`}>Idea</Label>
+                        <Input
+                          id={`edit-title-${idea.id}`}
+                          value={editForm.title}
+                          onChange={(e) =>
+                            setEditForm({ ...editForm, title: e.target.value })
+                          }
+                          required
+                          autoFocus
+                          className="mt-1.5"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor={`edit-notes-${idea.id}`}>Notes</Label>
+                        <Textarea
+                          id={`edit-notes-${idea.id}`}
+                          value={editForm.notes}
+                          onChange={(e) =>
+                            setEditForm({ ...editForm, notes: e.target.value })
+                          }
+                          placeholder="Any detail, context, or why it matters..."
+                          className="mt-1.5"
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <Button type="submit" size="sm" disabled={savingEdit}>
+                          <Check className="w-4 h-4 mr-1" />
+                          {savingEdit ? "Saving..." : "Save changes"}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={cancelEdit}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                      <p className="text-xs text-gray-400 dark:text-gray-500">
+                        Editing the idea re-runs the AI estimate.
+                      </p>
+                    </form>
+                  ) : (
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -369,16 +460,29 @@ export function IdeasBoard() {
                           </option>
                         ))}
                       </Select>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => deleteIdea(idea.id)}
-                        className="text-gray-400 hover:text-red-500"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => startEdit(idea)}
+                          className="text-gray-400 hover:text-emerald-600"
+                          aria-label="Edit idea"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => deleteIdea(idea.id)}
+                          className="text-gray-400 hover:text-red-500"
+                          aria-label="Delete idea"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
                     </div>
                   </div>
+                  )}
                 </CardContent>
               </Card>
             );
