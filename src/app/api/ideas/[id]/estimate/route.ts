@@ -40,9 +40,14 @@ export async function POST(
 
   try {
     const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    // Estimating a feature's scope is a reasoning task, and it runs rarely (a
+    // few calls when you add ideas), so it uses Claude Opus 5 — the strongest
+    // reasoning model — rather than the cheaper Sonnet the high-volume photo
+    // analysis uses. Opus 5 has adaptive thinking on by default; max_tokens
+    // must leave room for that thinking plus the JSON answer.
     const message = await anthropic.messages.create({
-      model: "claude-sonnet-4-5-20250929",
-      max_tokens: 600,
+      model: "claude-opus-5",
+      max_tokens: 3000,
       messages: [
         {
           role: "user",
