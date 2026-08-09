@@ -115,6 +115,8 @@ const styles = `
   .sm-steps,.sm-flow,.sm-feat{grid-template-columns:1fr;}
   .sm-node::after{content:"↓";right:50%;top:auto;bottom:-14px;transform:translateX(50%);}
   .sm-eli5,.sm-close{padding:36px 22px;margin:0 16px;}
+  .sm-nav-right .sm-muted{display:none;}
+  .sm-nav-right{gap:0;}
 }
 @media (prefers-reduced-motion:reduce){
   .sm-flash,.sm-nutri{animation:none;}
@@ -139,7 +141,7 @@ export default async function HomePage() {
             <span className="sm-mark">
               <Camera className="w-[19px] h-[19px]" />
             </span>
-            Snap<b>Meal</b>
+            <span>Snap<b>Meal</b></span>
           </div>
           <div className="sm-nav-right">
             <a href="#how" className="sm-muted">
@@ -401,7 +403,7 @@ export default async function HomePage() {
               >
                 <Camera className="w-[15px] h-[15px]" />
               </span>
-              Snap<b>Meal</b>
+              <span>Snap<b>Meal</b></span>
             </div>
             <div>snapmeal.dev &nbsp;·&nbsp; Snap it. Track it. Reach it.</div>
           </div>
