@@ -149,11 +149,16 @@ model Idea {
   notes     String?  // longer description / detail
   status    String   @default("new") // new, considering, building, done, parked
   priority  String   @default("none") // none, low, medium, high (you set this)
+  tags      String[] @default([]) // freeform themes (ios, ai, growth…), AI-suggested + editable
+  blockedBy String[] @default([]) // ids of ideas that must ship first
   // AI estimate (filled in the background after you submit):
   complexity    String?   // S, M, L, XL (effort)
   impact        String?   // low, medium, high (value/impact — AI-suggested, you can override)
   scope         String?   // implementation-scope summary
   aiEstimatedAt DateTime?
+  // "Promote to plan" output:
+  plan          String?   @db.Text // AI-generated implementation plan (markdown)
+  plannedAt     DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

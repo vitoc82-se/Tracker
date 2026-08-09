@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/session";
 import { isOwner } from "@/lib/owner";
+import { normalizeTags } from "@/app/(app)/ideas/ideas-shared";
 
 const STATUSES = ["new", "considering", "building", "done", "parked"];
 const PRIORITIES = ["none", "low", "medium", "high"];
@@ -32,6 +33,8 @@ export async function PATCH(
       priority?: string;
       impact?: string;
       complexity?: string;
+      tags?: string[];
+      blockedBy?: string[];
     } = {};
     if (typeof body?.title === "string" && body.title.trim()) data.title = body.title.trim();
     if (body?.notes !== undefined) data.notes = body.notes ? String(body.notes) : null;
@@ -39,6 +42,27 @@ export async function PATCH(
     if (PRIORITIES.includes(body?.priority)) data.priority = body.priority;
     if (IMPACTS.includes(body?.impact)) data.impact = body.impact;
     if (COMPLEXITIES.includes(body?.complexity)) data.complexity = body.complexity;
+
+    if (Array.isArray(body?.tags)) {
+      data.tags = normalizeTags(body.tags.map((t: unknown) => String(t)));
+    }
+
+    if (Array.isArray(body?.blockedBy)) {
+      // Keep only real ideas owned by this user, never the idea itself.
+      const rawIds = (body.blockedBy as unknown[]).map((x) => String(x));
+      const wanted: string[] = Array.from(new Set(rawIds)).filter(
+        (id) => id !== params.id
+      );
+      if (wanted.length === 0) {
+        data.blockedBy = [];
+      } else {
+        const valid = await db.idea.findMany({
+          where: { userId, id: { in: wanted } },
+          select: { id: true },
+        });
+        data.blockedBy = valid.map((v) => v.id);
+      }
+    }
 
     const idea = await db.idea.update({ where: { id: params.id }, data });
     return NextResponse.json(idea);

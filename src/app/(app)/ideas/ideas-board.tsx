@@ -11,6 +11,9 @@ import {
   ChevronRight,
   LayoutGrid,
   Loader2,
+  List,
+  Columns3,
+  Link2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { KanbanBoard } from "./ideas-kanban";
 import {
   Idea,
   STATUSES,
@@ -30,6 +34,8 @@ import {
   EFFORT_WEIGHT,
   isQuickWin,
   valueEffortScore,
+  blockingIdeas,
+  tagStyle,
 } from "./ideas-shared";
 
 type SortKey = "newest" | "priority" | "effort" | "quickwins";
@@ -53,9 +59,11 @@ export function IdeasBoard() {
   const [fStatus, setFStatus] = useState("all");
   const [fPriority, setFPriority] = useState("all");
   const [fComplexity, setFComplexity] = useState("all");
+  const [fTag, setFTag] = useState("all");
   const [quickOnly, setQuickOnly] = useState(false);
   const [sort, setSort] = useState<SortKey>("newest");
   const [showMatrix, setShowMatrix] = useState(false);
+  const [view, setView] = useState<"list" | "board">("list");
 
   const fetchIdeas = useCallback(async () => {
     try {
@@ -117,6 +125,24 @@ export function IdeasBoard() {
     }
   };
 
+  // id -> idea, and the set of ideas currently blocked by an unshipped dependency.
+  const byId = useMemo(
+    () => new Map(ideas.map((i) => [i.id, i])),
+    [ideas]
+  );
+  const blockedIds = useMemo(() => {
+    const s = new Set<string>();
+    for (const i of ideas) if (blockingIdeas(i, byId).length) s.add(i.id);
+    return s;
+  }, [ideas, byId]);
+
+  // All tags in use (for the tag filter).
+  const allTags = useMemo(() => {
+    const set = new Set<string>();
+    for (const i of ideas) for (const t of i.tags) set.add(t);
+    return Array.from(set).sort();
+  }, [ideas]);
+
   // ---- derived: stats ----
   const stats = useMemo(() => {
     const byStatus: Record<string, number> = {};
@@ -131,51 +157,67 @@ export function IdeasBoard() {
     return { total: ideas.length, quick, open, byStatus };
   }, [ideas]);
 
-  // ---- derived: filtered + sorted list ----
-  const visible = useMemo(() => {
+  const sortIdeas = useCallback(
+    (list: Idea[]) =>
+      [...list].sort((a, b) => {
+        switch (sort) {
+          case "priority":
+            return (
+              (PRIORITY_WEIGHT[b.priority] ?? 0) -
+                (PRIORITY_WEIGHT[a.priority] ?? 0) ||
+              +new Date(b.createdAt) - +new Date(a.createdAt)
+            );
+          case "effort": {
+            const ea = a.complexity ? EFFORT_WEIGHT[a.complexity] : 99;
+            const eb = b.complexity ? EFFORT_WEIGHT[b.complexity] : 99;
+            return ea - eb || +new Date(b.createdAt) - +new Date(a.createdAt);
+          }
+          case "quickwins":
+            return (
+              valueEffortScore(b) - valueEffortScore(a) ||
+              +new Date(b.createdAt) - +new Date(a.createdAt)
+            );
+          default:
+            return +new Date(b.createdAt) - +new Date(a.createdAt);
+        }
+      }),
+    [sort]
+  );
+
+  // Filters shared by both views (everything except status, which the kanban
+  // columns already represent).
+  const baseFiltered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    let list = ideas.filter((i) => {
-      if (fStatus !== "all" && i.status !== fStatus) return false;
+    return ideas.filter((i) => {
       if (fPriority !== "all" && i.priority !== fPriority) return false;
       if (fComplexity !== "all" && i.complexity !== fComplexity) return false;
+      if (fTag !== "all" && !i.tags.includes(fTag)) return false;
       if (quickOnly && !isQuickWin(i)) return false;
       if (q) {
-        const hay = `${i.title} ${i.notes || ""}`.toLowerCase();
+        const hay = `${i.title} ${i.notes || ""} ${i.tags.join(" ")}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
+  }, [ideas, search, fPriority, fComplexity, fTag, quickOnly]);
 
-    list = [...list].sort((a, b) => {
-      switch (sort) {
-        case "priority":
-          return (
-            (PRIORITY_WEIGHT[b.priority] ?? 0) -
-              (PRIORITY_WEIGHT[a.priority] ?? 0) ||
-            +new Date(b.createdAt) - +new Date(a.createdAt)
-          );
-        case "effort": {
-          const ea = a.complexity ? EFFORT_WEIGHT[a.complexity] : 99;
-          const eb = b.complexity ? EFFORT_WEIGHT[b.complexity] : 99;
-          return ea - eb || +new Date(b.createdAt) - +new Date(a.createdAt);
-        }
-        case "quickwins":
-          return (
-            valueEffortScore(b) - valueEffortScore(a) ||
-            +new Date(b.createdAt) - +new Date(a.createdAt)
-          );
-        default:
-          return +new Date(b.createdAt) - +new Date(a.createdAt);
-      }
-    });
-    return list;
-  }, [ideas, search, fStatus, fPriority, fComplexity, quickOnly, sort]);
+  // List view also honors the status filter and the sort order.
+  const visible = useMemo(() => {
+    const list =
+      fStatus === "all"
+        ? baseFiltered
+        : baseFiltered.filter((i) => i.status === fStatus);
+    return sortIdeas(list);
+  }, [baseFiltered, fStatus, sortIdeas]);
+
+  const kanbanIdeas = useMemo(() => sortIdeas(baseFiltered), [baseFiltered, sortIdeas]);
 
   const filtersActive =
     search.trim() !== "" ||
     fStatus !== "all" ||
     fPriority !== "all" ||
     fComplexity !== "all" ||
+    fTag !== "all" ||
     quickOnly;
 
   const resetFilters = () => {
@@ -183,6 +225,7 @@ export function IdeasBoard() {
     setFStatus("all");
     setFPriority("all");
     setFComplexity("all");
+    setFTag("all");
     setQuickOnly(false);
   };
 
@@ -327,7 +370,35 @@ export function IdeasBoard() {
 
           {/* Filter / search / sort bar */}
           <div className="flex flex-wrap items-center gap-2">
-            <div className="relative flex-1 min-w-[180px]">
+            {/* View toggle */}
+            <div className="inline-flex rounded-lg border border-gray-200 dark:border-gray-700 p-0.5">
+              <button
+                type="button"
+                onClick={() => setView("list")}
+                className={`inline-flex items-center gap-1 text-sm px-2.5 py-1 rounded-md ${
+                  view === "list"
+                    ? "bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white"
+                    : "text-gray-500 dark:text-gray-400"
+                }`}
+                aria-label="List view"
+              >
+                <List className="w-4 h-4" /> List
+              </button>
+              <button
+                type="button"
+                onClick={() => setView("board")}
+                className={`inline-flex items-center gap-1 text-sm px-2.5 py-1 rounded-md ${
+                  view === "board"
+                    ? "bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white"
+                    : "text-gray-500 dark:text-gray-400"
+                }`}
+                aria-label="Board view"
+              >
+                <Columns3 className="w-4 h-4" /> Board
+              </button>
+            </div>
+
+            <div className="relative flex-1 min-w-[160px]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <Input
                 value={search}
@@ -336,19 +407,21 @@ export function IdeasBoard() {
                 className="pl-9"
               />
             </div>
-            <Select
-              value={fStatus}
-              onChange={(e) => setFStatus(e.target.value)}
-              className="w-auto text-sm"
-              aria-label="Filter by status"
-            >
-              <option value="all">All statuses</option>
-              {STATUSES.map((s) => (
-                <option key={s.value} value={s.value}>
-                  {s.label}
-                </option>
-              ))}
-            </Select>
+            {view === "list" && (
+              <Select
+                value={fStatus}
+                onChange={(e) => setFStatus(e.target.value)}
+                className="w-auto text-sm"
+                aria-label="Filter by status"
+              >
+                <option value="all">All statuses</option>
+                {STATUSES.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
+              </Select>
+            )}
             <Select
               value={fPriority}
               onChange={(e) => setFPriority(e.target.value)}
@@ -374,6 +447,21 @@ export function IdeasBoard() {
               <option value="L">L</option>
               <option value="XL">XL</option>
             </Select>
+            {allTags.length > 0 && (
+              <Select
+                value={fTag}
+                onChange={(e) => setFTag(e.target.value)}
+                className="w-auto text-sm"
+                aria-label="Filter by tag"
+              >
+                <option value="all">Any tag</option>
+                {allTags.map((t) => (
+                  <option key={t} value={t}>
+                    #{t}
+                  </option>
+                ))}
+              </Select>
+            )}
             <Select
               value={sort}
               onChange={(e) => setSort(e.target.value as SortKey)}
@@ -393,8 +481,22 @@ export function IdeasBoard() {
             )}
           </div>
 
-          {/* List */}
-          {visible.length === 0 ? (
+          {/* Board or list */}
+          {view === "board" ? (
+            kanbanIdeas.length === 0 ? (
+              <Card>
+                <CardContent className="py-10 text-center text-gray-500 dark:text-gray-400">
+                  No ideas match these filters.
+                </CardContent>
+              </Card>
+            ) : (
+              <KanbanBoard
+                ideas={kanbanIdeas}
+                blockedIds={blockedIds}
+                onStatus={patchStatus}
+              />
+            )
+          ) : visible.length === 0 ? (
             <Card>
               <CardContent className="py-10 text-center text-gray-500 dark:text-gray-400">
                 No ideas match these filters.
@@ -403,7 +505,12 @@ export function IdeasBoard() {
           ) : (
             <div className="space-y-2">
               {visible.map((idea) => (
-                <IdeaRow key={idea.id} idea={idea} onStatus={patchStatus} />
+                <IdeaRow
+                  key={idea.id}
+                  idea={idea}
+                  blocked={blockedIds.has(idea.id)}
+                  onStatus={patchStatus}
+                />
               ))}
             </div>
           )}
@@ -424,9 +531,11 @@ function StatChip({ label, value }: { label: string; value: number }) {
 
 function IdeaRow({
   idea,
+  blocked,
   onStatus,
 }: {
   idea: Idea;
+  blocked: boolean;
   onStatus: (id: string, status: string) => void;
 }) {
   const quick = isQuickWin(idea);
@@ -442,6 +551,14 @@ function IdeaRow({
                 title="Quick win — high value, low effort"
               >
                 <Star className="w-3 h-3" /> Quick win
+              </span>
+            )}
+            {blocked && (
+              <span
+                className="inline-flex items-center gap-0.5 text-xs px-2 py-0.5 rounded-full bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-300"
+                title="Blocked by another idea that hasn't shipped"
+              >
+                <Link2 className="w-3 h-3" /> Blocked
               </span>
             )}
             <h3 className="font-semibold text-gray-900 dark:text-white truncate group-hover:text-emerald-600 dark:group-hover:text-emerald-400">
@@ -472,6 +589,14 @@ function IdeaRow({
                 {idea.complexity}
               </span>
             )}
+            {idea.tags.map((t) => (
+              <span
+                key={t}
+                className={`text-xs px-2 py-0.5 rounded-full ${tagStyle(t)}`}
+              >
+                {t}
+              </span>
+            ))}
             {estimating && (
               <span className="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
                 <Loader2 className="w-3 h-3 animate-spin" /> estimating

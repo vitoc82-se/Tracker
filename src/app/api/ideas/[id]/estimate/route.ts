@@ -3,6 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/session";
 import { isOwner } from "@/lib/owner";
+import { normalizeTags } from "@/app/(app)/ideas/ideas-shared";
 
 // Condensed app context so the model can estimate scope realistically.
 const APP_CONTEXT = `SnapMeal is a Next.js 14 (App Router) + TypeScript + Tailwind web app.
@@ -64,7 +65,8 @@ Estimate what it would take to build this in SnapMeal, and how valuable it is. R
   "complexity": "S | M | L | XL",
   "impact": "low | medium | high — how much this improves the product for its users (user value, differentiation, reach). Judge value, not effort.",
   "scope": "2-4 sentences: what it touches (models, endpoints, UI), the rough steps, and any real risk or dependency. Concrete and specific to this app.",
-  "suggestedPriority": "low | medium | high"
+  "suggestedPriority": "low | medium | high",
+  "tags": ["1-3 short lowercase theme tags, e.g. ai, ios, growth, nutrition, ux, backend"]
 }`,
         },
       ],
@@ -91,6 +93,10 @@ Estimate what it would take to build this in SnapMeal, and how valuable it is. R
     const suggested = ["low", "medium", "high"].includes(raw?.suggestedPriority)
       ? raw.suggestedPriority
       : null;
+    // AI tags only fill in when the user hasn't tagged the idea themselves.
+    const aiTags = Array.isArray(raw?.tags)
+      ? normalizeTags(raw.tags.map((t: unknown) => String(t)))
+      : [];
 
     const updated = await db.idea.update({
       where: { id: params.id },
@@ -100,6 +106,7 @@ Estimate what it would take to build this in SnapMeal, and how valuable it is. R
         scope,
         aiEstimatedAt: new Date(),
         ...(idea.priority === "none" && suggested ? { priority: suggested } : {}),
+        ...(idea.tags.length === 0 && aiTags.length ? { tags: aiTags } : {}),
       },
     });
 
