@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && prisma db push --accept-data-loss && next build",
+    "build": "node scripts/gen-architecture-context.mjs && prisma generate && prisma db push --accept-data-loss && next build",
+    "gen:context": "node scripts/gen-architecture-context.mjs",
     "postinstall": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",

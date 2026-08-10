@@ -3,11 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/session";
 import { isOwner } from "@/lib/owner";
-
-// Shared app context so the plan is grounded in how SnapMeal is actually built.
-const APP_CONTEXT = `SnapMeal is a Next.js 14 (App Router) + TypeScript + Tailwind web app.
-Backend: Prisma + Neon Postgres; NextAuth (JWT, email/password + Google). AI: Anthropic Claude vision for meal-photo analysis. Hosted on Vercel — deploy is "git push origin main" and the build runs "prisma db push" (additive schema changes are safe; unique constraints on existing data are risky).
-Data models: User (profile + body stats), Meal + MealItem, Exercise, Goal (auto-calculated from profile via BMR/TDEE/Mifflin-St Jeor), Idea. Frontend pages live under app/(app)/ behind auth; UI primitives in components/ui; API routes under app/api, each gated by getCurrentUserId(). Next planned platform step: a native Swift iOS app reusing this backend.`;
+import { ideaAppContext } from "@/lib/app-context";
 
 export async function POST(
   _request: Request,
@@ -57,9 +53,9 @@ export async function POST(
           role: "user",
           content: `You write build prompts for an AI coding agent (Claude Code) that has full read/write access to the SnapMeal repo. No human writes code — the agent implements the whole feature and ships it. Your job: turn the backlog idea below into ONE self-contained prompt the owner can paste straight into the agent with no edits.
 
-Repo facts the agent needs:
-${APP_CONTEXT}
-Deploy flow: work on a feature branch, run "npx tsc --noEmit" and a Next build to verify, then merge to main and "git push origin main" (Vercel auto-builds; the build runs "prisma db push"). After any prisma/schema.prisma change, run "npx prisma generate". Keep schema changes additive (new nullable columns / new tables); never add a unique constraint or anything that can fail on existing rows. Every API route is owner/user gated via getCurrentUserId(); keep queries userId-scoped. Match existing conventions (UI primitives in components/ui, Tailwind, dark mode).
+${ideaAppContext()}
+
+Deploy flow the agent must follow: work on a feature branch, run "npx tsc --noEmit" and a Next build to verify, then merge to main and "git push origin main" (Vercel auto-builds; the build runs "prisma db push"). After any prisma/schema.prisma change, run "npx prisma generate". Keep schema changes additive (new nullable columns / new tables); never add a unique constraint or anything that can fail on existing rows. Every API route is owner/user gated via getCurrentUserId(); keep queries userId-scoped. Match existing conventions (UI primitives in components/ui, Tailwind, dark mode).
 
 The idea to build:
 Title: ${idea.title}
@@ -73,8 +69,11 @@ Write the prompt in Markdown, addressed directly to the agent in the imperative 
 # <short feature name>
 **Goal:** one or two sentences on the user-facing outcome.
 
+## Verify first
+Tell the agent to confirm the assumptions below against the actual code before writing anything, and to adapt if reality differs from the architecture doc (the doc can lag). Name the specific files/routes/models it should open to check (e.g. the relevant API route, the Prisma model, the page/component it will touch).
+
 ## Context
-The few repo specifics that matter for THIS feature (which existing files/models/routes it builds on).
+The few repo specifics that matter for THIS feature — which existing files/models/routes it builds on. Prefer extending what already exists over adding parallel systems; if a route or helper for this already exists, say so and reuse it.
 
 ## Implementation
 A numbered, ordered list of concrete steps naming the exact files, Prisma models, API routes and components to add or change. Be specific to this codebase — no generic filler.
@@ -85,7 +84,7 @@ Any schema change and why it's db-push-safe (or flag the risk). Note the prisma 
 ## Acceptance criteria
 A checkbox list ("- [ ] …") of what "done" looks like, including that tsc and the build pass.
 
-Rules: be concrete and specific to SnapMeal; prefer the smallest change that fully delivers the idea; if something is genuinely ambiguous, state a sensible default and proceed rather than asking. Output ONLY the prompt Markdown, no preamble or sign-off.`,
+Rules: be concrete and specific to SnapMeal and grounded in the architecture doc above; do not invent files or endpoints that aren't in it, and never propose building something it says already exists. Prefer the smallest change that fully delivers the idea; if something is genuinely ambiguous, state a sensible default and proceed rather than asking. Output ONLY the prompt Markdown, no preamble or sign-off.`,
         },
       ],
     });
