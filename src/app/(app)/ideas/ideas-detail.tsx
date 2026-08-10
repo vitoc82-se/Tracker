@@ -14,7 +14,7 @@ import {
   Star,
   Tag as TagIcon,
   Link2,
-  FileText,
+  Terminal,
   Copy,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -568,19 +568,19 @@ export function IdeaDetail({
         </CardContent>
       </Card>
 
-      {/* Promote to plan */}
+      {/* Build prompt (paste-into-agent) */}
       <Card>
         <CardContent className="p-5">
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center justify-between mb-2 gap-2">
             <h2 className="text-sm font-medium text-gray-900 dark:text-white flex items-center gap-1.5">
-              <FileText className="w-4 h-4 text-emerald-600" />
-              Implementation plan
+              <Terminal className="w-4 h-4 text-emerald-600" />
+              AI build prompt
             </h2>
             <div className="flex items-center gap-1">
               {idea.plan && (
-                <Button variant="ghost" size="sm" onClick={copyPlan}>
+                <Button size="sm" onClick={copyPlan}>
                   <Copy className="w-4 h-4 mr-1" />
-                  {copied ? "Copied" : "Copy"}
+                  {copied ? "Copied!" : "Copy prompt"}
                 </Button>
               )}
               <Button
@@ -596,30 +596,31 @@ export function IdeaDetail({
                 ) : idea.plan ? (
                   "Regenerate"
                 ) : (
-                  "Promote to plan"
+                  "Generate build prompt"
                 )}
               </Button>
             </div>
           </div>
           {planning ? (
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              Turning this idea into a concrete build plan…
+              Writing a paste-ready prompt for the coding agent…
             </p>
           ) : idea.plan ? (
             <>
               <pre className="mt-1 p-3 rounded-lg bg-gray-50 dark:bg-gray-800/60 text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap font-sans overflow-x-auto">
                 {idea.plan}
               </pre>
-              {idea.plannedAt && (
-                <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
-                  Generated {new Date(idea.plannedAt).toLocaleDateString()}
-                </p>
-              )}
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
+                Copy this and paste it to Claude Code (or this chat) to build the
+                feature — no edits needed.
+                {idea.plannedAt &&
+                  ` · Generated ${new Date(idea.plannedAt).toLocaleDateString()}`}
+              </p>
             </>
           ) : (
             <p className="text-sm text-gray-400 dark:text-gray-500">
-              Turn this idea (and its scope) into a step-by-step implementation
-              plan you can hand off.
+              Turn this idea (and its scope) into a self-contained prompt you can
+              paste straight into the coding agent to build it.
             </p>
           )}
         </CardContent>

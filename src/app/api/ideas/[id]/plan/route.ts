@@ -45,48 +45,54 @@ export async function POST(
 
   try {
     const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-    // Turning an idea into a concrete build plan is a reasoning task run rarely
-    // and on demand, so it uses Claude Opus 5 with room for adaptive thinking.
+    // In SnapMeal all code is written by an AI coding agent, never a human — so
+    // "promote to plan" produces a ready-to-paste BUILD PROMPT addressed to that
+    // agent, not a human handoff doc. This is a reasoning task run on demand, so
+    // it uses Claude Opus 5 with room for adaptive thinking.
     const message = await anthropic.messages.create({
       model: "claude-opus-5",
       max_tokens: 4000,
       messages: [
         {
           role: "user",
-          content: `${APP_CONTEXT}
+          content: `You write build prompts for an AI coding agent (Claude Code) that has full read/write access to the SnapMeal repo. No human writes code — the agent implements the whole feature and ships it. Your job: turn the backlog idea below into ONE self-contained prompt the owner can paste straight into the agent with no edits.
 
-Turn this backlog idea into a concrete implementation plan a developer could pick up.
+Repo facts the agent needs:
+${APP_CONTEXT}
+Deploy flow: work on a feature branch, run "npx tsc --noEmit" and a Next build to verify, then merge to main and "git push origin main" (Vercel auto-builds; the build runs "prisma db push"). After any prisma/schema.prisma change, run "npx prisma generate". Keep schema changes additive (new nullable columns / new tables); never add a unique constraint or anything that can fail on existing rows. Every API route is owner/user gated via getCurrentUserId(); keep queries userId-scoped. Match existing conventions (UI primitives in components/ui, Tailwind, dark mode).
 
-Idea: ${idea.title}
+The idea to build:
+Title: ${idea.title}
 Notes: ${idea.notes || "(none)"}
 AI scope estimate: ${idea.scope || "(not estimated)"}
 Effort: ${idea.complexity || "?"} · Value: ${idea.impact || "?"}
-${blockedByTitles.length ? `Depends on (ship first): ${blockedByTitles.join(", ")}` : ""}
+${blockedByTitles.length ? `Depends on (build these first): ${blockedByTitles.join(", ")}` : ""}
 
-Write the plan in Markdown with these sections:
-## Goal
-One or two sentences on the user-facing outcome.
-## Approach
-The technical approach in prose — how it fits SnapMeal's existing architecture.
-## Data model changes
-Any Prisma schema changes (note if none). Flag anything risky for "prisma db push".
-## API
-New or changed routes under app/api.
-## UI
-Pages/components under app/(app) and components/ui.
-## Steps
-A numbered, ordered checklist of implementation steps.
-## Risks & open questions
-Bullet points.
+Write the prompt in Markdown, addressed directly to the agent in the imperative ("Add…", "Create…", "Update…"). Structure it as:
 
-Be concrete and specific to this codebase. Output only the Markdown, no preamble.`,
+# <short feature name>
+**Goal:** one or two sentences on the user-facing outcome.
+
+## Context
+The few repo specifics that matter for THIS feature (which existing files/models/routes it builds on).
+
+## Implementation
+A numbered, ordered list of concrete steps naming the exact files, Prisma models, API routes and components to add or change. Be specific to this codebase — no generic filler.
+
+## Data & deploy notes
+Any schema change and why it's db-push-safe (or flag the risk). Note the prisma generate + build + branch/merge/push steps to follow.
+
+## Acceptance criteria
+A checkbox list ("- [ ] …") of what "done" looks like, including that tsc and the build pass.
+
+Rules: be concrete and specific to SnapMeal; prefer the smallest change that fully delivers the idea; if something is genuinely ambiguous, state a sensible default and proceed rather than asking. Output ONLY the prompt Markdown, no preamble or sign-off.`,
         },
       ],
     });
 
     const textContent = message.content.find((c) => c.type === "text");
     if (!textContent || textContent.type !== "text") {
-      return NextResponse.json({ error: "No plan generated" }, { status: 500 });
+      return NextResponse.json({ error: "No build prompt generated" }, { status: 500 });
     }
     const plan = textContent.text.trim();
 
@@ -98,7 +104,7 @@ Be concrete and specific to this codebase. Output only the Markdown, no preamble
     return NextResponse.json(updated);
   } catch (error: unknown) {
     console.error("Idea plan error:", error);
-    let messageText = "Failed to generate plan";
+    let messageText = "Failed to generate build prompt";
     if (error instanceof Anthropic.APIError) messageText = `AI error: ${error.message}`;
     return NextResponse.json({ error: messageText }, { status: 500 });
   }
