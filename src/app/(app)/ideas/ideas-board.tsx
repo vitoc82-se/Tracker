@@ -61,6 +61,7 @@ export function IdeasBoard() {
   const [fComplexity, setFComplexity] = useState("all");
   const [fTag, setFTag] = useState("all");
   const [quickOnly, setQuickOnly] = useState(false);
+  const [openOnly, setOpenOnly] = useState(false);
   const [sort, setSort] = useState<SortKey>("newest");
   const [showMatrix, setShowMatrix] = useState(false);
   const [view, setView] = useState<"list" | "board">("list");
@@ -193,13 +194,14 @@ export function IdeasBoard() {
       if (fComplexity !== "all" && i.complexity !== fComplexity) return false;
       if (fTag !== "all" && !i.tags.includes(fTag)) return false;
       if (quickOnly && !isQuickWin(i)) return false;
+      if (openOnly && (i.status === "done" || i.status === "parked")) return false;
       if (q) {
         const hay = `${i.title} ${i.notes || ""} ${i.tags.join(" ")}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [ideas, search, fPriority, fComplexity, fTag, quickOnly]);
+  }, [ideas, search, fPriority, fComplexity, fTag, quickOnly, openOnly]);
 
   // List view also honors the status filter and the sort order.
   const visible = useMemo(() => {
@@ -218,7 +220,8 @@ export function IdeasBoard() {
     fPriority !== "all" ||
     fComplexity !== "all" ||
     fTag !== "all" ||
-    quickOnly;
+    quickOnly ||
+    openOnly;
 
   const resetFilters = () => {
     setSearch("");
@@ -227,6 +230,14 @@ export function IdeasBoard() {
     setFComplexity("all");
     setFTag("all");
     setQuickOnly(false);
+    setOpenOnly(false);
+  };
+
+  // Clicking a status stat-chip filters the list to that status (a list concept,
+  // so switch to List view); clicking it again clears back to all.
+  const toggleStatusFilter = (status: string) => {
+    setView("list");
+    setFStatus((cur) => (cur === status ? "all" : status));
   };
 
   return (
@@ -331,10 +342,22 @@ export function IdeasBoard() {
         </Card>
       ) : (
         <>
-          {/* Summary stat chips */}
+          {/* Summary stat chips — clickable filters. */}
           <div className="flex flex-wrap items-center gap-2">
-            <StatChip label="Total" value={stats.total} />
-            <StatChip label="Open" value={stats.open} />
+            <StatChip
+              label="Total"
+              value={stats.total}
+              active={!filtersActive}
+              onClick={resetFilters}
+              title="Show all ideas (clear filters)"
+            />
+            <StatChip
+              label="Open"
+              value={stats.open}
+              active={openOnly}
+              onClick={() => setOpenOnly((v) => !v)}
+              title="Only ideas that aren't done or parked"
+            />
             <button
               type="button"
               onClick={() => setQuickOnly((v) => !v)}
@@ -349,12 +372,19 @@ export function IdeasBoard() {
               {stats.quick} quick win{stats.quick === 1 ? "" : "s"}
             </button>
             {STATUSES.filter((s) => stats.byStatus[s.value]).map((s) => (
-              <span
+              <button
                 key={s.value}
-                className={`text-xs px-2.5 py-1 rounded-full ${STATUS_STYLES[s.value]}`}
+                type="button"
+                onClick={() => toggleStatusFilter(s.value)}
+                title={`Show only ${s.label.toLowerCase()} ideas`}
+                className={`text-xs px-2.5 py-1 rounded-full transition ${STATUS_STYLES[s.value]} ${
+                  fStatus === s.value
+                    ? "ring-2 ring-offset-1 ring-emerald-500 dark:ring-offset-gray-900"
+                    : "hover:opacity-80"
+                }`}
               >
                 {stats.byStatus[s.value]} {s.label.toLowerCase()}
-              </span>
+              </button>
             ))}
             <button
               type="button"
@@ -520,12 +550,33 @@ export function IdeasBoard() {
   );
 }
 
-function StatChip({ label, value }: { label: string; value: number }) {
+function StatChip({
+  label,
+  value,
+  active,
+  onClick,
+  title,
+}: {
+  label: string;
+  value: number;
+  active?: boolean;
+  onClick?: () => void;
+  title?: string;
+}) {
   return (
-    <span className="inline-flex items-center gap-1.5 text-sm px-3 py-1 rounded-full border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300">
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className={`inline-flex items-center gap-1.5 text-sm px-3 py-1 rounded-full border transition ${
+        active
+          ? "border-emerald-400 bg-emerald-50 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300"
+          : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+      }`}
+    >
       <span className="font-semibold text-gray-900 dark:text-white">{value}</span>
       {label}
-    </span>
+    </button>
   );
 }
 
