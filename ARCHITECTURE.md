@@ -23,8 +23,9 @@ The living reference for how SnapMeal is built and wired together. Keep this cur
 ## 2. Deployment
 
 - **Deploy = `git push origin main`.** Vercel auto-builds.
-- Build command: `prisma generate && prisma db push --accept-data-loss && next build`.
+- Build command: `npm run gen:context && prisma generate && prisma db push --accept-data-loss && next build`.
   - **`prisma db push` applies schema changes to the LIVE database on every deploy.** Additive changes (new column with a default, new table) are safe. **Avoid** adding a `@@unique` constraint (or anything that can fail on existing data) without a dedup migration first — a failed `db push` fails the whole deploy.
+  - **`gen:context`** runs two generators that keep the ideas-backlog AI grounded in reality (see §7): `scripts/gen-architecture-context.mjs` bundles this doc into `src/lib/architecture-context.ts`, and `scripts/gen-app-inventory.mjs` scans the source into `src/lib/app-inventory.ts` (every route + methods, page, Prisma model, lib). Both regenerate on every build, so the context can never go stale. The inventory is derived from code and is authoritative; this prose is a human-maintained companion — **keep it current when routes/models/flows change.**
 - **Vercel Deployment Protection** is usually ON — it puts an SSO wall in front of the `*.vercel.app` URL. Turn it off in Vercel settings when you need the public landing page or automated QA to reach the app. The app's own NextAuth login is a separate, always-on layer.
 - Prod URL: `tracker-niklas-nilssons-projects-76e5dba3.vercel.app`. Local repo: `C:\Users\freem\Tracker`.
 - Env vars needed: `DATABASE_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `ANTHROPIC_API_KEY`, `BLOB_READ_WRITE_TOKEN`, `GOOGLE_CLIENT_ID/SECRET` (optional), `OWNER_EMAIL` (optional, see §7).
