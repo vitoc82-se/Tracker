@@ -33,7 +33,7 @@ The living reference for how SnapMeal is built and wired together. Keep this cur
 
 - **User** — profile + body stats (`height, weight, targetWeight, age, gender, activityLevel`) used to compute goals. Auth fields from the NextAuth adapter (`Account`, `Session`, `VerificationToken`).
 - **Meal** — `name, mealType, calories, protein, carbs, fat, fiber, imageUrl, notes, aiAnalysis, loggedAt` + **MealItem[]**.
-- **MealItem** — a single detected food: `name, quantity, unit, calories, protein, carbs, fat`. (No fiber at item level; fiber is meal-level only.)
+- **MealItem** — a single detected food: `name, quantity, unit, calories, protein, carbs, fat`, plus `corrected` (user re-identified it) and `alternatives[]` (AI "did you mean?" names). (No fiber at item level; fiber is meal-level only.)
 - **Exercise** — logged activity: `caloriesBurned, duration, ...`.
 - **Goal** — `goalType` (calories | protein | carbs | fat | exercise_minutes | weight), `target, unit, period, source` (`manual` | `auto`). Live progress is computed on read, not stored (the stored `current` field is ignored).
 - **Idea** — the private backlog: `title, notes, status` (new | considering | building | done | parked), `priority` (you set), `tags[]` (themes), `blockedBy[]` (dependency idea ids), AI-filled `complexity` (S/M/L/XL effort), `impact` (low/med/high value), `scope`, and a `plan` (AI-generated implementation plan). See §7.
@@ -48,7 +48,7 @@ The living reference for how SnapMeal is built and wired together. Keep this cur
 
 ### API (all under `/api`, all auth-gated via `getCurrentUserId()`)
 - `analyze` (POST) — photo (base64) → Claude vision → `{ name, items[], totals, description }`. Response is coerced to clean numbers.
-- `analyze/correct` (POST) — surgical single-item re-estimate from a text correction ("that's juice, not a mimosa"). No image.
+- `analyze/correct` (POST) — re-identify one item: takes the corrected food name (or free-text) + the meal photo (base64 for a new meal, or the stored image URL for a saved one) and does a constrained vision re-estimate for that food. Returns fresh macros + `alternatives`, validates them (finite, ≥0, kcal ≤ 5000), and returns `400 {canOverride:true}` on garbage so the item is never mutated. Also emits up to 3 `alternatives` per item from the main `analyze` route.
 - `meals` (GET/POST), `meals/[id]` (GET/PUT/DELETE) — PUT replaces items so amount/correction edits persist on saved meals.
 - `goals` (GET/POST), `goals/[id]` (PUT/DELETE), `goals/suggest` (POST) — see §5.
 - `dashboard` (GET) — aggregates today's intake, burn, macros, chart data, live goal progress, weight plan.
@@ -62,7 +62,7 @@ The living reference for how SnapMeal is built and wired together. Keep this cur
 1. User photographs a meal (`meals` page). Base64 → `POST /api/analyze`.
 2. Claude returns detected items + totals; the form pre-fills.
 3. **Edit amounts:** each item stores a *base* quantity + macros; changing the amount scales macros from the base (`lib/meal-nutrition.ts` — `parseQuantity`, `scaleMacros`, `recomputeTotals`, `coerceNumber`). Guards: divide-by-zero, fractions, non-numeric quantities.
-4. **Correct a food:** the item's "wrong food?" path calls `/api/analyze/correct` and swaps just that item.
+4. **Re-identify a food:** in the per-item editor, edit the food name (or tap a "Did you mean?" alternative), then **Re-identify & update nutrition** calls `/api/analyze/correct` with the meal photo and swaps just that item's macros, marking it `corrected`. If the AI can't estimate it, a manual macro-override fallback appears; a plain rename persists on its own. Corrections stage in the form and persist on meal **Save**, exactly like amount edits (meal items are replace-on-save, so there are no stable per-item IDs to PATCH).
 5. Totals derive from items when items exist (the total fields go read-only). Save → `POST /api/meals` (or `PUT` for edits, which replaces items).
 
 ### Goals that calculate themselves

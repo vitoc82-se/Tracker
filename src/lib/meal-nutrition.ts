@@ -39,6 +39,26 @@ export function parseQuantity(quantity: string | null | undefined): number | nul
   return null;
 }
 
+/** Clean an AI-supplied list of alternate food names: strings only, trimmed,
+ * de-duped case-insensitively, the chosen name removed, capped at 3. Tolerant
+ * of any garbage shape (returns []) so it can never break analysis. */
+export function normalizeAlternatives(raw: unknown, chosenName?: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const chosen = typeof chosenName === "string" ? chosenName.trim().toLowerCase() : "";
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const entry of raw) {
+    if (typeof entry !== "string") continue;
+    const clean = entry.trim().slice(0, 80);
+    const key = clean.toLowerCase();
+    if (!clean || key === chosen || seen.has(key)) continue;
+    seen.add(key);
+    out.push(clean);
+    if (out.length >= 3) break;
+  }
+  return out;
+}
+
 export interface ItemBase {
   baseQuantity: number | null;
   baseCalories: number;

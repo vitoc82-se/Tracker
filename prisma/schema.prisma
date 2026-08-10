@@ -99,6 +99,8 @@ model MealItem {
   fat      Float  @default(0)
   quantity String?
   unit     String?
+  corrected    Boolean  @default(false) // user re-identified this item (for accuracy analytics)
+  alternatives String[] @default([])    // AI-suggested alternate identifications ("did you mean?")
 
   meal Meal @relation(fields: [mealId], references: [id], onDelete: Cascade)
 }
