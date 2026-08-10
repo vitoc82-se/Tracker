@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -16,6 +16,7 @@ import {
   Link2,
   Terminal,
   Copy,
+  ChevronDown,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -62,6 +63,13 @@ export function IdeaDetail({
   const [deleting, setDeleting] = useState(false);
   const [tagInput, setTagInput] = useState("");
   const [copied, setCopied] = useState(false);
+
+  // Collapsible sections so a long idea (big notes, scope, build prompt) doesn't
+  // force endless scrolling. All start expanded; the user folds what they want.
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const isOpen = (k: string) => !collapsed[k];
+  const toggleSection = (k: string) =>
+    setCollapsed((prev) => ({ ...prev, [k]: !prev[k] }));
 
   const idTitle = useMemo(() => {
     const m = new Map<string, IdeaRef>();
@@ -314,18 +322,24 @@ export function IdeaDetail({
 
               {/* Notes */}
               <div>
-                <h2 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">
-                  Notes
-                </h2>
-                {idea.notes ? (
-                  <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
-                    {idea.notes}
-                  </p>
-                ) : (
-                  <p className="text-gray-400 dark:text-gray-500 italic">
-                    No notes yet.
-                  </p>
-                )}
+                <SectionToggle
+                  open={isOpen("notes")}
+                  onClick={() => toggleSection("notes")}
+                >
+                  <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                    Notes
+                  </span>
+                </SectionToggle>
+                {isOpen("notes") &&
+                  (idea.notes ? (
+                    <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap mt-1">
+                      {idea.notes}
+                    </p>
+                  ) : (
+                    <p className="text-gray-400 dark:text-gray-500 italic mt-1">
+                      No notes yet.
+                    </p>
+                  ))}
               </div>
 
               {/* Tags */}
@@ -522,11 +536,16 @@ export function IdeaDetail({
       {/* Implementation scope */}
       <Card>
         <CardContent className="p-5">
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="text-sm font-medium text-gray-900 dark:text-white flex items-center gap-1.5">
-              <Sparkles className="w-4 h-4 text-emerald-600" />
-              Implementation scope
-            </h2>
+          <div className="flex items-center justify-between mb-2 gap-2">
+            <SectionToggle
+              open={isOpen("scope")}
+              onClick={() => toggleSection("scope")}
+            >
+              <span className="text-sm font-medium text-gray-900 dark:text-white flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4 text-emerald-600" />
+                Implementation scope
+              </span>
+            </SectionToggle>
             <Button
               variant="ghost"
               size="sm"
@@ -544,27 +563,28 @@ export function IdeaDetail({
               )}
             </Button>
           </div>
-          {estimating ? (
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              Asking the AI to size this up…
-            </p>
-          ) : idea.scope ? (
-            <>
-              <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
-                {idea.scope}
+          {isOpen("scope") &&
+            (estimating ? (
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Asking the AI to size this up…
               </p>
-              {idea.aiEstimatedAt && (
-                <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
-                  Estimated {new Date(idea.aiEstimatedAt).toLocaleDateString()}
+            ) : idea.scope ? (
+              <>
+                <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
+                  {idea.scope}
                 </p>
-              )}
-            </>
-          ) : (
-            <p className="text-sm text-gray-400 dark:text-gray-500">
-              No estimate yet. Run one to get complexity, value and a build
-              breakdown.
-            </p>
-          )}
+                {idea.aiEstimatedAt && (
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
+                    Estimated {new Date(idea.aiEstimatedAt).toLocaleDateString()}
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="text-sm text-gray-400 dark:text-gray-500">
+                No estimate yet. Run one to get complexity, value and a build
+                breakdown.
+              </p>
+            ))}
         </CardContent>
       </Card>
 
@@ -572,10 +592,15 @@ export function IdeaDetail({
       <Card>
         <CardContent className="p-5">
           <div className="flex items-center justify-between mb-2 gap-2">
-            <h2 className="text-sm font-medium text-gray-900 dark:text-white flex items-center gap-1.5">
-              <Terminal className="w-4 h-4 text-emerald-600" />
-              AI build prompt
-            </h2>
+            <SectionToggle
+              open={isOpen("plan")}
+              onClick={() => toggleSection("plan")}
+            >
+              <span className="text-sm font-medium text-gray-900 dark:text-white flex items-center gap-1.5">
+                <Terminal className="w-4 h-4 text-emerald-600" />
+                AI build prompt
+              </span>
+            </SectionToggle>
             <div className="flex items-center gap-1">
               {idea.plan && (
                 <Button size="sm" onClick={copyPlan}>
@@ -601,28 +626,29 @@ export function IdeaDetail({
               </Button>
             </div>
           </div>
-          {planning ? (
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              Writing a paste-ready prompt for the coding agent…
-            </p>
-          ) : idea.plan ? (
-            <>
-              <pre className="mt-1 p-3 rounded-lg bg-gray-50 dark:bg-gray-800/60 text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap font-sans overflow-x-auto">
-                {idea.plan}
-              </pre>
-              <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
-                Copy this and paste it to Claude Code (or this chat) to build the
-                feature — no edits needed.
-                {idea.plannedAt &&
-                  ` · Generated ${new Date(idea.plannedAt).toLocaleDateString()}`}
+          {isOpen("plan") &&
+            (planning ? (
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Writing a paste-ready prompt for the coding agent…
               </p>
-            </>
-          ) : (
-            <p className="text-sm text-gray-400 dark:text-gray-500">
-              Turn this idea (and its scope) into a self-contained prompt you can
-              paste straight into the coding agent to build it.
-            </p>
-          )}
+            ) : idea.plan ? (
+              <>
+                <pre className="mt-1 p-3 rounded-lg bg-gray-50 dark:bg-gray-800/60 text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap font-sans overflow-auto max-h-[28rem]">
+                  {idea.plan}
+                </pre>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
+                  Copy this and paste it to Claude Code (or this chat) to build the
+                  feature — no edits needed.
+                  {idea.plannedAt &&
+                    ` · Generated ${new Date(idea.plannedAt).toLocaleDateString()}`}
+                </p>
+              </>
+            ) : (
+              <p className="text-sm text-gray-400 dark:text-gray-500">
+                Turn this idea (and its scope) into a self-contained prompt you can
+                paste straight into the coding agent to build it.
+              </p>
+            ))}
         </CardContent>
       </Card>
 
@@ -640,5 +666,32 @@ export function IdeaDetail({
         </Button>
       </div>
     </div>
+  );
+}
+
+// A section header that folds its content. The chevron rotates to signal state.
+function SectionToggle({
+  open,
+  onClick,
+  children,
+}: {
+  open: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-center gap-1.5 text-left min-w-0"
+      aria-expanded={open}
+    >
+      <ChevronDown
+        className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${
+          open ? "" : "-rotate-90"
+        }`}
+      />
+      {children}
+    </button>
   );
 }
