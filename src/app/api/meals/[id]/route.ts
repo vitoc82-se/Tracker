@@ -59,6 +59,10 @@ export async function PUT(
                 fat: Number(item.fat) || 0,
                 quantity: item.quantity != null ? String(item.quantity) : null,
                 unit: item.unit != null ? String(item.unit) : null,
+                corrected: Boolean(item.corrected),
+                alternatives: Array.isArray(item.alternatives)
+                  ? (item.alternatives as unknown[]).map((a) => String(a))
+                  : [],
               })),
             },
           }

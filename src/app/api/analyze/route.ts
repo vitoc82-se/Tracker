@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { getCurrentUserId } from "@/lib/session";
-import { coerceNumber } from "@/lib/meal-nutrition";
+import { coerceNumber, normalizeAlternatives } from "@/lib/meal-nutrition";
 
 export async function POST(request: Request) {
   const userId = await getCurrentUserId();
@@ -55,7 +55,8 @@ export async function POST(request: Request) {
       "calories": 0,
       "protein": 0,
       "carbs": 0,
-      "fat": 0
+      "fat": 0,
+      "alternatives": ["up to 3 plausible alternate identifications for this item if you are unsure, most-likely-first, excluding the name above; empty array if confident"]
     }
   ],
   "totalCalories": 0,
@@ -106,6 +107,8 @@ Be as accurate as possible with nutritional estimates based on typical serving s
       protein: coerceNumber(item?.protein),
       carbs: coerceNumber(item?.carbs),
       fat: coerceNumber(item?.fat),
+      // Never fail analysis over a missing/malformed alternatives field.
+      alternatives: normalizeAlternatives(item?.alternatives, item?.name),
     }));
 
     const analysis = {

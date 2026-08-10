@@ -60,7 +60,7 @@ export async function POST(request: Request) {
         loggedAt: loggedAt ? new Date(loggedAt) : new Date(),
         items: items?.length
           ? {
-              create: items.map((item: { name: string; calories?: number; protein?: number; carbs?: number; fat?: number; quantity?: string; unit?: string }) => ({
+              create: items.map((item: { name: string; calories?: number; protein?: number; carbs?: number; fat?: number; quantity?: string; unit?: string; corrected?: boolean; alternatives?: string[] }) => ({
                 name: item.name,
                 calories: item.calories || 0,
                 protein: item.protein || 0,
@@ -68,6 +68,8 @@ export async function POST(request: Request) {
                 fat: item.fat || 0,
                 quantity: item.quantity,
                 unit: item.unit,
+                corrected: item.corrected ?? false,
+                alternatives: Array.isArray(item.alternatives) ? item.alternatives : [],
               })),
             }
           : undefined,

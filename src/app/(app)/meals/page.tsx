@@ -36,6 +36,9 @@ interface FormItem {
   fat: number;
   quantity?: string;
   unit?: string;
+  alternatives: string[]; // AI "did you mean?" suggestions
+  corrected: boolean; // user re-identified this item
+  originalName: string; // the name as loaded, to detect a rename
   // Stored base for stable proportional scaling (never mutated on edit).
   baseQuantity: number | null;
   baseCalories: number;
@@ -66,6 +69,8 @@ interface Meal {
     fat: number;
     quantity?: string;
     unit?: string;
+    alternatives?: string[];
+    corrected?: boolean;
   }[];
 }
 
@@ -86,21 +91,29 @@ function toFormItem(item: {
   protein?: unknown;
   carbs?: unknown;
   fat?: unknown;
+  alternatives?: unknown;
+  corrected?: unknown;
 }): FormItem {
   const calories = coerceNumber(item.calories);
   const protein = coerceNumber(item.protein);
   const carbs = coerceNumber(item.carbs);
   const fat = coerceNumber(item.fat);
   const quantity = item.quantity != null ? String(item.quantity) : undefined;
+  const name = typeof item.name === "string" ? item.name : "Item";
   return {
     id: item.id,
-    name: typeof item.name === "string" ? item.name : "Item",
+    name,
+    originalName: name,
     quantity,
     unit: item.unit != null ? String(item.unit) : undefined,
     calories,
     protein,
     carbs,
     fat,
+    alternatives: Array.isArray(item.alternatives)
+      ? item.alternatives.filter((a): a is string => typeof a === "string")
+      : [],
+    corrected: Boolean(item.corrected),
     baseQuantity: parseQuantity(quantity),
     baseCalories: calories,
     baseProtein: protein,
@@ -120,14 +133,17 @@ export default function MealsPage() {
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [imageBase64, setImageBase64] = useState<string | null>(null);
   const [imageMimeType, setImageMimeType] = useState<string>("image/jpeg");
+  // Stored photo URL of the meal being edited (used for the re-identify vision
+  // pass when the image only exists as a Blob URL, not base64).
+  const [editImageUrl, setEditImageUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Per-item edit UI state.
   const [expandedItem, setExpandedItem] = useState<number | null>(null);
-  const [showCorrection, setShowCorrection] = useState(false);
-  const [correctionText, setCorrectionText] = useState("");
-  const [correctingIndex, setCorrectingIndex] = useState<number | null>(null);
-  const [correctionError, setCorrectionError] = useState("");
+  const [nameDraft, setNameDraft] = useState("");
+  const [reidentifyingIndex, setReidentifyingIndex] = useState<number | null>(null);
+  const [reidentifyError, setReidentifyError] = useState("");
+  const [showManualMacros, setShowManualMacros] = useState(false);
 
   const [form, setForm] = useState({
     name: "",
@@ -271,37 +287,115 @@ export default function MealsPage() {
     });
   };
 
-  const submitCorrection = async (index: number) => {
-    const text = correctionText.trim();
-    if (!text) return;
+  // Commit a plain rename (no AI): mark corrected when the name actually
+  // changed, so a rename persists on save even without a nutrition re-estimate.
+  const commitName = (index: number) => {
+    const newName = nameDraft.trim();
+    setForm((prev) => {
+      const items = [...prev.items];
+      const it = items[index];
+      if (!newName || newName === it.name) return prev;
+      items[index] = {
+        ...it,
+        name: newName,
+        corrected: newName !== it.originalName ? true : it.corrected,
+      };
+      return { ...prev, items };
+    });
+  };
+
+  // Pick one of the AI's "did you mean?" suggestions into the name field.
+  const pickAlternative = (alt: string) => {
+    setNameDraft(alt);
+    setReidentifyError("");
+  };
+
+  // Re-identify: ask the AI for fresh macros for the item's new name, using the
+  // meal photo when we have it. Falls back to a manual override on failure.
+  const reidentify = async (index: number) => {
+    const newName = nameDraft.trim();
     const item = form.items[index];
-    setCorrectingIndex(index);
-    setCorrectionError("");
+    if (!newName || newName === item.name) {
+      // Nothing to re-estimate; just persist a rename if any.
+      commitName(index);
+      return;
+    }
+    setReidentifyingIndex(index);
+    setReidentifyError("");
     try {
+      const payload: Record<string, unknown> = {
+        itemName: item.name,
+        name: newName,
+        unit: item.unit,
+        quantity: item.quantity,
+      };
+      // Prefer freshly-selected base64 (new meal); otherwise the saved photo URL.
+      if (imageBase64) {
+        payload.image = imageBase64;
+        payload.mimeType = imageMimeType;
+      } else if (editImageUrl) {
+        payload.imageUrl = editImageUrl;
+      }
+
       const res = await fetch("/api/analyze/correct", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ itemName: item.name, correction: text, unit: item.unit }),
+        body: JSON.stringify(payload),
       });
       if (res.ok) {
         const corrected = await res.json();
         setForm((prev) => {
           const items = [...prev.items];
-          items[index] = toFormItem(corrected);
+          const prevItem = items[index];
+          const next = toFormItem({ ...corrected, id: prevItem.id });
+          // Keep the item's identity as corrected and remember the original name
+          // so a later revert is still flagged sensibly.
+          items[index] = { ...next, originalName: prevItem.originalName, corrected: true };
           return { ...prev, items };
         });
-        setCorrectionText("");
-        setExpandedItem(null);
+        setShowManualMacros(false);
       } else {
         const data = await res.json().catch(() => null);
-        setCorrectionError(data?.error || "Correction failed. Please try again.");
+        // Persist the rename even though the estimate failed, then reveal the
+        // manual macro fallback.
+        commitName(index);
+        setShowManualMacros(true);
+        setReidentifyError(
+          data?.error || "Couldn't estimate that automatically — enter the macros manually below."
+        );
       }
     } catch (err) {
-      console.error("Correction failed:", err);
-      setCorrectionError("Could not connect to the correction service.");
+      console.error("Re-identify failed:", err);
+      commitName(index);
+      setShowManualMacros(true);
+      setReidentifyError("Couldn't reach the AI — enter the macros manually below.");
     } finally {
-      setCorrectingIndex(null);
+      setReidentifyingIndex(null);
     }
+  };
+
+  // Manual macro override (fallback path): edit a single macro directly and
+  // rebase it so amount scaling keeps working from the new value.
+  const updateItemMacro = (
+    index: number,
+    field: "calories" | "protein" | "carbs" | "fat",
+    value: string
+  ) => {
+    const n = coerceNumber(value);
+    setForm((prev) => {
+      const items = [...prev.items];
+      const it = items[index];
+      const baseField = (
+        { calories: "baseCalories", protein: "baseProtein", carbs: "baseCarbs", fat: "baseFat" } as const
+      )[field];
+      items[index] = {
+        ...it,
+        [field]: n,
+        [baseField]: n,
+        corrected: true,
+      };
+      return { ...prev, items };
+    });
   };
 
   const startEdit = (meal: Meal) => {
@@ -324,8 +418,14 @@ export default function MealsPage() {
     });
     if (meal.imageUrl) {
       setPreviewImage(meal.imageUrl);
+      setEditImageUrl(meal.imageUrl);
+    } else {
+      setEditImageUrl(null);
     }
     setExpandedItem(null);
+    setNameDraft("");
+    setReidentifyError("");
+    setShowManualMacros(false);
     setShowForm(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -383,6 +483,8 @@ export default function MealsPage() {
           fat: it.fat,
           quantity: it.quantity,
           unit: it.unit,
+          corrected: it.corrected,
+          alternatives: it.alternatives,
         })),
       };
 
@@ -441,10 +543,12 @@ export default function MealsPage() {
     setEditingId(null);
     setPreviewImage(null);
     setImageBase64(null);
+    setEditImageUrl(null);
     setAnalyzeError("");
     setExpandedItem(null);
-    setCorrectionText("");
-    setCorrectionError("");
+    setNameDraft("");
+    setReidentifyError("");
+    setShowManualMacros(false);
   };
 
   return (
@@ -671,10 +775,18 @@ export default function MealsPage() {
                           className="bg-gray-50 dark:bg-gray-700/50 rounded-lg text-sm overflow-hidden"
                         >
                           <div className="flex items-center justify-between p-3">
-                            <span className="font-medium text-gray-700 dark:text-gray-300 min-w-0 truncate">
-                              {item.name}
+                            <span className="font-medium text-gray-700 dark:text-gray-300 min-w-0 truncate flex items-center gap-1.5">
+                              <span className="truncate">{item.name}</span>
+                              {item.corrected && (
+                                <span
+                                  className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 shrink-0"
+                                  title="You re-identified this item"
+                                >
+                                  corrected
+                                </span>
+                              )}
                               {item.quantity && (
-                                <span className="text-gray-400 ml-1">
+                                <span className="text-gray-400 shrink-0">
                                   ({item.quantity} {item.unit})
                                 </span>
                               )}
@@ -688,11 +800,9 @@ export default function MealsPage() {
                                 onClick={() => {
                                   const willExpand = !expanded;
                                   setExpandedItem(willExpand ? i : null);
-                                  setCorrectionText("");
-                                  setCorrectionError("");
-                                  // Non-scalable items have no amount to edit,
-                                  // so open straight to the correction path.
-                                  setShowCorrection(willExpand && !scalable);
+                                  setNameDraft(willExpand ? item.name : "");
+                                  setReidentifyError("");
+                                  setShowManualMacros(false);
                                 }}
                                 className={`transition-colors p-1 rounded ${
                                   expanded
@@ -716,9 +826,65 @@ export default function MealsPage() {
 
                           {expanded && (
                             <div className="px-3 pb-3 pt-1 space-y-3 border-t border-gray-200 dark:border-gray-600">
-                              {/* Amount editor — primary, applies on its own */}
+                              {/* Food name — rename + re-identify */}
+                              <div>
+                                <Label className="text-xs">Food</Label>
+                                <Input
+                                  value={nameDraft}
+                                  onChange={(e) => setNameDraft(e.target.value)}
+                                  onBlur={() => commitName(i)}
+                                  maxLength={80}
+                                  placeholder="What is this food?"
+                                  className="mt-1"
+                                />
+                                {item.alternatives.length > 0 && (
+                                  <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                                    <span className="text-xs text-gray-400">
+                                      Did you mean?
+                                    </span>
+                                    {item.alternatives.map((alt) => (
+                                      <button
+                                        key={alt}
+                                        type="button"
+                                        onClick={() => pickAlternative(alt)}
+                                        className="text-xs px-2 py-0.5 rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-emerald-400 hover:text-emerald-600"
+                                      >
+                                        {alt}
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                                <div className="mt-2">
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    disabled={
+                                      reidentifyingIndex === i ||
+                                      !nameDraft.trim() ||
+                                      nameDraft.trim() === item.name
+                                    }
+                                    onClick={() => reidentify(i)}
+                                  >
+                                    {reidentifyingIndex === i ? (
+                                      "Re-identifying…"
+                                    ) : (
+                                      <>
+                                        <Check className="w-3.5 h-3.5 mr-1" /> Re-identify &amp;
+                                        update nutrition
+                                      </>
+                                    )}
+                                  </Button>
+                                </div>
+                                {reidentifyError && (
+                                  <p className="text-xs text-red-600 dark:text-red-400 mt-1.5">
+                                    {reidentifyError}
+                                  </p>
+                                )}
+                              </div>
+
+                              {/* Amount editor — scales macros proportionally */}
                               {scalable && (
-                                <div>
+                                <div className="pt-1 border-t border-gray-200 dark:border-gray-600">
                                   <Label className="text-xs">Amount</Label>
                                   <div className="flex items-center gap-2 mt-1">
                                     <Input
@@ -731,67 +897,54 @@ export default function MealsPage() {
                                       onBlur={() => commitItemAmount(i)}
                                       className="w-28"
                                     />
-                                    <span className="text-gray-500">
-                                      {item.unit}
-                                    </span>
+                                    <span className="text-gray-500">{item.unit}</span>
                                     <span className="text-xs text-gray-400">
                                       = {formatNumber(item.calories, 0)} kcal
                                     </span>
                                   </div>
                                   <p className="text-xs text-gray-400 mt-1">
-                                    Just change the number — the macros update
-                                    automatically. No comment needed.
+                                    Change the number — the macros update automatically.
                                   </p>
                                 </div>
                               )}
 
-                              {/* Correction — optional, only for wrong food */}
-                              {showCorrection ? (
-                                <div className={scalable ? "pt-1" : ""}>
-                                  <Label className="text-xs">
-                                    Tell the AI what this food actually is
-                                  </Label>
-                                  <div className="flex items-center gap-2 mt-1">
-                                    <Input
-                                      value={correctionText}
-                                      onChange={(e) =>
-                                        setCorrectionText(e.target.value)
-                                      }
-                                      placeholder="e.g., this is orange juice, not a mimosa"
-                                      className="flex-1"
-                                    />
-                                    <Button
-                                      type="button"
-                                      size="sm"
-                                      disabled={
-                                        correctingIndex === i ||
-                                        !correctionText.trim()
-                                      }
-                                      onClick={() => submitCorrection(i)}
-                                    >
-                                      {correctingIndex === i ? (
-                                        "Re-identifying..."
-                                      ) : (
-                                        <>
-                                          <Check className="w-3.5 h-3.5 mr-1" />{" "}
-                                          Re-identify
-                                        </>
-                                      )}
-                                    </Button>
+                              {/* Manual macro override — fallback when the AI can't estimate */}
+                              {showManualMacros ? (
+                                <div className="pt-1 border-t border-gray-200 dark:border-gray-600">
+                                  <Label className="text-xs">Macros (manual)</Label>
+                                  <div className="grid grid-cols-4 gap-2 mt-1">
+                                    {(
+                                      [
+                                        ["calories", "kcal"],
+                                        ["protein", "P (g)"],
+                                        ["carbs", "C (g)"],
+                                        ["fat", "F (g)"],
+                                      ] as const
+                                    ).map(([field, label]) => (
+                                      <div key={field}>
+                                        <span className="text-[10px] text-gray-400">
+                                          {label}
+                                        </span>
+                                        <Input
+                                          type="number"
+                                          inputMode="decimal"
+                                          value={item[field]}
+                                          onChange={(e) =>
+                                            updateItemMacro(i, field, e.target.value)
+                                          }
+                                          className="mt-0.5"
+                                        />
+                                      </div>
+                                    ))}
                                   </div>
-                                  {correctionError && (
-                                    <p className="text-xs text-red-600 dark:text-red-400 mt-1">
-                                      {correctionError}
-                                    </p>
-                                  )}
                                 </div>
                               ) : (
                                 <button
                                   type="button"
-                                  onClick={() => setShowCorrection(true)}
-                                  className="text-xs text-emerald-600 hover:underline"
+                                  onClick={() => setShowManualMacros(true)}
+                                  className="text-xs text-gray-400 hover:text-emerald-600 hover:underline"
                                 >
-                                  Wrong food, not just the amount? Re-identify with AI
+                                  Enter macros manually instead
                                 </button>
                               )}
                             </div>
