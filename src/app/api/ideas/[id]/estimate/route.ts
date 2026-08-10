@@ -4,12 +4,7 @@ import { db } from "@/lib/db";
 import { getSession } from "@/lib/session";
 import { isOwner } from "@/lib/owner";
 import { normalizeTags } from "@/app/(app)/ideas/ideas-shared";
-
-// Condensed app context so the model can estimate scope realistically.
-const APP_CONTEXT = `SnapMeal is a Next.js 14 (App Router) + TypeScript + Tailwind web app.
-Backend: Prisma + Neon Postgres; NextAuth (JWT, email/password + Google). AI: Anthropic Claude vision for meal-photo analysis. Hosted on Vercel — deploy is "git push origin main" and the build runs "prisma db push" (schema changes apply to the live DB; additive changes are safe, unique constraints are risky).
-Data models: User (profile + body stats), Meal + MealItem, Exercise, Goal (auto-calculated from profile via BMR/TDEE/Mifflin-St Jeor), Idea.
-Existing features: snap a photo -> Claude estimates calories + macros -> edit item amounts / correct a food; goals that auto-calculate from the profile; a dashboard (intake vs burn, macros, weight plan); onboarding; a private ideas backlog. Frontend pages live under app/(app)/ behind auth. UI primitives in components/ui. API routes under app/api. Next planned step: a native Swift iOS app (backend reused).`;
+import { ideaAppContext } from "@/lib/app-context";
 
 const COMPLEXITY_GUIDE = `Complexity scale:
 S = a few hours, 1-2 files, no schema change.
@@ -52,7 +47,7 @@ export async function POST(
       messages: [
         {
           role: "user",
-          content: `${APP_CONTEXT}
+          content: `${ideaAppContext()}
 
 ${COMPLEXITY_GUIDE}
 
