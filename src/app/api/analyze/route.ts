@@ -29,7 +29,7 @@ export async function POST(request: Request) {
 
     const message = await anthropic.messages.create({
       model: "claude-sonnet-4-5-20250929",
-      max_tokens: 1024,
+      max_tokens: 1500,
       messages: [
         {
           role: "user",
@@ -44,19 +44,33 @@ export async function POST(request: Request) {
             },
             {
               type: "text",
-              text: `Analyze this food image and provide nutritional estimates. Return ONLY valid JSON in this exact format, no other text:
+              text: `You are an expert nutrition estimator. Analyze the food photo and return ONLY valid JSON (no prose, no markdown) matching the shape at the end.
+
+Before answering, work through this silently and do NOT output your reasoning:
+1. SCAN the entire image systematically — center, edges, background, and anything under or behind other items. Catch EVERY distinct food and drink, including small or easy-to-miss ones: sides, garnishes, sauces, dips, dressings, spreads, toppings, bread, condiments, and any beverage.
+2. IDENTIFY each item as specifically as you can from visual cues (color, texture, char/sear, sheen, cut, plating) and cuisine context. If you are unsure, pick the single most likely identity and list other plausible ones in "alternatives" — never drop an item just because you are unsure.
+3. ACCOUNT FOR HOW IT WAS COOKED. Infer the preparation (fried, sautéed, roasted, grilled, dressed, buttered, breaded) and ADD the cooking fats and add-ons it implies even when they are not directly visible — cooking oil for sautéed/pan-fried food, butter on toast/vegetables/pancakes, oil and dressing on salad, added sugar in sweet drinks or baked goods. Add each as its own item (e.g. "Cooking oil (absorbed)", "Butter", "Salad dressing") with a realistic, moderate amount. Do NOT double-count: if a food's typical nutrition already assumes the fat (e.g. "french fries" or "fried chicken" already include frying oil), do not add extra oil on top.
+4. ESTIMATE each portion in grams or ml using visual scale cues (dinner plate ≈ 26 cm, fork ≈ 18 cm, cup ≈ 240 ml, a palm or deck-of-cards of meat ≈ 85 g). Give a numeric amount and a unit for every item.
+5. COMPUTE calories and macros for each item from its estimated portion, then sum the totals.
+
+Rules:
+- Separate distinct foods into separate items; never lump a mixed plate into one.
+- Prefer specific names ("grilled chicken thigh", "basmati rice") over generic ("meat", "carbs").
+- All nutrition values are plain numbers: calories in kcal; protein, carbs, fat, and fiber in grams.
+
+Return ONLY this JSON:
 {
-  "name": "Name of the meal/dish",
+  "name": "short name of the overall meal/dish",
   "items": [
     {
-      "name": "Individual food item",
-      "quantity": "estimated amount",
-      "unit": "g/ml/piece/cup/etc",
+      "name": "specific food item",
+      "quantity": "estimated amount as a number",
+      "unit": "g | ml | piece | slice | cup | tbsp | tsp",
       "calories": 0,
       "protein": 0,
       "carbs": 0,
       "fat": 0,
-      "alternatives": ["up to 3 plausible alternate identifications for this item if you are unsure, most-likely-first, excluding the name above; empty array if confident"]
+      "alternatives": ["up to 3 other plausible identifications, most-likely-first, excluding the name above; [] if confident"]
     }
   ],
   "totalCalories": 0,
@@ -64,10 +78,8 @@ export async function POST(request: Request) {
   "totalCarbs": 0,
   "totalFat": 0,
   "totalFiber": 0,
-  "description": "Brief description of what you see"
-}
-
-Be as accurate as possible with nutritional estimates based on typical serving sizes. All nutritional values should be numbers (calories in kcal, macros in grams).`,
+  "description": "one sentence on what you see and how it appears to be cooked"
+}`,
             },
           ],
         },
@@ -82,10 +94,16 @@ Be as accurate as possible with nutritional estimates based on typical serving s
       );
     }
 
-    // Extract JSON from the response (handle potential markdown code blocks)
+    // Extract JSON from the response (handle markdown code blocks and any stray
+    // prose the model may add before/after the object).
     let jsonStr = textContent.text.trim();
     if (jsonStr.startsWith("```")) {
       jsonStr = jsonStr.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
+    }
+    if (!jsonStr.startsWith("{")) {
+      const first = jsonStr.indexOf("{");
+      const last = jsonStr.lastIndexOf("}");
+      if (first !== -1 && last > first) jsonStr = jsonStr.slice(first, last + 1);
     }
 
     const raw = JSON.parse(jsonStr);
