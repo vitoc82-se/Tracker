@@ -636,11 +636,12 @@ export default function MealsPage() {
                     </span>
                   </button>
                 )}
+                {/* No `capture` attribute: on mobile this lets the OS offer both
+                    the camera and the photo library instead of forcing a new photo. */}
                 <input
                   ref={fileInputRef}
                   type="file"
                   accept="image/*"
-                  capture="environment"
                   onChange={handleImageSelect}
                   className="hidden"
                 />
