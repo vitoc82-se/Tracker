@@ -80,3 +80,5 @@ npm run dev
 6. Deploy!
 
 The `prisma generate` step runs automatically as part of the build process.
+
+This repo is set up for AI implementation with Idea HQ.
